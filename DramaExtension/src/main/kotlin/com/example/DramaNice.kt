@@ -102,8 +102,12 @@ class DramaNice : MainAPI() {
         val out = mutableListOf<Pair<Int, String>>()
         for (url in all) {
             val m = episodeSlugRe.find(url) ?: continue
+            // Compare by the last path segment only: sitemap URLs are absolute
+            // and the site's slug prefix may include an extra path element
+            // (e.g. /drama/<slug>/) or a year/counter suffix.
             val prefix = url.substringBeforeLast("-episode-").removeSuffix("/")
-            if (prefix in candidates) {
+            val prefixPath = prefix.substringAfterLast('/')
+            if (prefixPath in candidates || prefixPath.startsWith(slug + "-")) {
                 out.add(m.groupValues[2].toInt() to url)
             }
         }
@@ -221,7 +225,7 @@ class DramaNice : MainAPI() {
         val slug = url.trimEnd('/').substringAfterLast('/')
         val seen = LinkedHashSet<Int>()
         val episodes = mutableListOf<Episode>()
-        for (a in doc.select("ul.list_episode a[href*=/episode-]")) {
+        for (a in doc.select("ul.list_episode a[href*=-episode-]")) {
             val n = Regex("episode-(\\d+)").find(a.attr("href"))?.groupValues?.get(1)
                 ?.toIntOrNull() ?: continue
             if (!seen.add(n)) continue

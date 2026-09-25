@@ -4,6 +4,7 @@ import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.newExtractorLink
+import org.json.JSONObject
 import org.jsoup.nodes.Document
 
 /**
@@ -186,22 +187,27 @@ class KDramaIn : MainAPI() {
             val text = app.get(VIDSYNC_API, params = params, referer = embedUrl).text
             val seen = LinkedHashSet<String>()
             var added = false
+            // The API is JSON-lines. provider-result lines carry a nested
+            // "sources" array whose objects contain nested objects
+            // ("headers", "audioTracks", ...), so parse with a real JSON parser.
             for (line in text.lines()) {
                 if (!line.contains("provider-result")) continue
-                val provider = Regex("\"provider\"\\s*:\\s*\"([^\"]+)\"")
-                    .find(line)?.groupValues?.get(1) ?: "server"
-                for (obj in Regex("\\{[^{}]*\"rawUrl\"[^{}]*\\}").findAll(line)) {
-                    val s = obj.value
-                    val url = Regex("\"url\"\\s*:\\s*\"([^\"]+)\"").find(s)
-                        ?.groupValues?.get(1)
-                        ?: Regex("\"rawUrl\"\\s*:\\s*\"([^\"]+)\"").find(s)
-                        ?.groupValues?.get(1)
-                        ?: continue
+                val obj = try {
+                    JSONObject(line)
+                } catch (_: Throwable) {
+                    continue
+                }
+                if (obj.optString("type") != "provider-result") continue
+                val provider = obj.optString("provider").ifBlank { "server" }
+                val sources = obj.optJSONArray("sources") ?: continue
+                for (i in 0 until sources.length()) {
+                    val s = sources.optJSONObject(i) ?: continue
+                    val url = s.optString("url").ifBlank { s.optString("rawUrl") }.ifBlank { continue }
                     if (!seen.add(url)) continue
-                    val quality = Regex("\"quality\"\\s*:\\s*\"([^\"]+)\"").find(s)
-                        ?.groupValues?.get(1)
-                        ?: "auto"
-                    val isHls = url.contains(".m3u8") || quality.contains("hls", true)
+                    val quality = s.optString("quality").ifBlank { "auto" }
+                    val mediaType = s.optString("type")
+                    val isHls = mediaType.equals("hls", true)
+                        || url.contains(".m3u8") || quality.contains("hls", true)
                     callback(
                         newExtractorLink(
                             name,
