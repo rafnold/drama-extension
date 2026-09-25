@@ -1,0 +1,82 @@
+name: Build
+
+# https://docs.github.com/en/actions/learn-about-workflows-and-actions/workflow-syntax-for-github-actions#concurrency
+concurrency:
+  group: "build"
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      # choose your default branch
+      - master
+      - main
+    paths-ignore:
+      - '*.md'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+        with:
+          path: "src"
+
+      - name: Checkout builds
+        uses: actions/checkout@master
+        with:
+          ref: "builds"
+          path: "builds"
+
+      - name: Clean old builds
+        run: rm -f $GITHUB_WORKSPACE/builds/*.cs3
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v1
+        with:
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
+      # The CloudStream gradle plugin (com.lagradost.cloudstream3:gradle:local-SNAPSHOT)
+      # is not currently published on JitPack/GitHub Packages (missing JARs), so we
+      # build it from source and publish it to mavenLocal first.
+      # Pinned to a known-good commit for reproducible builds.
+      - name: Checkout CloudStream gradle plugin
+        uses: actions/checkout@master
+        with:
+          repository: "recloudstream/gradle"
+          ref: "32895aedb6366f5075cb99bbd2e6ce0a7cac325d"
+          path: "cloudstream-plugin"
+
+      - name: Publish CloudStream gradle plugin to mavenLocal
+        working-directory: cloudstream-plugin
+        run: ./gradlew publishToMavenLocal --console=plain
+
+      - name: Build Plugins
+        run: |
+          cd $GITHUB_WORKSPACE/src
+          chmod +x gradlew
+          ./gradlew make makePluginsJson
+          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds
+          cp build/plugins.json $GITHUB_WORKSPACE/builds
+
+      # The manifest the app fetches when you "Add Repository". It must be a
+      # Repository JSON (repo.json), not the plugins.json list. Regenerated
+      # from the repo-root copy with the real user/repo so forks and renames
+      # always get the correct raw URL.
+      - name: Write repo.json for builds branch
+        run: |
+          sed "s|https://raw.githubusercontent.com/[^/]\+/[^/]\+/builds/plugins.json|https://raw.githubusercontent.com/${{ github.repository }}/builds/plugins.json|" \
+            $GITHUB_WORKSPACE/src/repo.json > $GITHUB_WORKSPACE/builds/repo.json
+
+      - name: Push builds
+        run: |
+          cd $GITHUB_WORKSPACE/builds
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add .
+          git commit --amend -m "Build $GITHUB_SHA" || exit 0   # do not error if nothing to commit
+          git push --force
