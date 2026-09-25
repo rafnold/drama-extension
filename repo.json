@@ -1,0 +1,9 @@
+{
+  "name": "Drama Extension Repository",
+  "description": "Asian drama streaming extensions for CloudStream 3: DramaNice and KDrama.in",
+  "iconUrl": "https://dramanice.boo/wp-content/uploads/2026/08/Hold-on-Harutora-kun-2026-poster.jpg",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/rafnold/drama-extension/builds/plugins.json"
+  ]
+}
