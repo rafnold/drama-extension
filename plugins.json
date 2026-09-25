@@ -1,0 +1,23 @@
+[
+    {
+        "iconUrl": "https://dramanice.boo/wp-content/uploads/2026/08/Hold-on-Harutora-kun-2026-poster.jpg",
+        "fileHash": "sha256-5143145c182d6848625db933f4a983f5eb1c7cfc244e327452e63bbbbd3f3bbb",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/rafnold/drama-extension",
+        "fileSize": 44291,
+        "status": 1,
+        "language": "en",
+        "authors": [
+            "drama-scraper"
+        ],
+        "tvTypes": [
+            "TV",
+            "Movie"
+        ],
+        "version": 4,
+        "internalName": "DramaExtension",
+        "description": "Asian drama streaming sites: DramaNice (dramanice.boo) and KDrama.in (k-drama.in). Resolves final m3u8/mp4 sources.",
+        "url": "https://raw.githubusercontent.com/rafnold/drama-extension/builds/DramaExtension.cs3",
+        "name": "DramaExtension"
+    }
+]
