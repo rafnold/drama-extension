@@ -37,8 +37,15 @@ jobs:
         with:
           java-version: 17
 
+      # ubuntu-latest runners ship the Android SDK with pre-accepted licenses;
+      # install exactly the components the build needs. (android-actions/setup-android
+      # is broken: it still tries to install the discontinued 'tools' package.)
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+        run: |
+          SDKM=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -n 1)
+          [ -n "$SDKM" ] || { echo "cmdline-tools not found under $ANDROID_HOME"; ls -la "$ANDROID_HOME"; exit 1; }
+          yes | "$SDKM" --licenses > /dev/null 2>&1 || true
+          "$SDKM" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       # The CloudStream gradle plugin (com.lagradost.cloudstream3:gradle:local-SNAPSHOT)
       # is not currently published on JitPack/GitHub Packages (missing JARs), so we
