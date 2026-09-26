@@ -80,6 +80,8 @@ class DramaNice : MainAPI() {
                 ?: a.closest("li")?.selectFirst("img")
             val poster = img
                 ?.let { it.attr("data-src").ifBlank { it.attr("src") } }
+                ?.takeIf { !it.startsWith("data:") }
+                ?.let { toAbsoluteUrl(it) }
                 ?.takeIf { it.startsWith("http") }
             out += newTvSeriesSearchResponse(nm, url, TvType.AsianDrama) {
                 posterUrl = poster
@@ -196,11 +198,15 @@ class DramaNice : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         return try {
-            val doc = if (request.data == "all") {
-                app.get(mainUrl.removeSuffix("/") + "/list-all-drama/").document
+            // "All Dramas" uses the site's paginated listing (image cards);
+            // the A-Z /list-all-drama/ index is text-only with no posters.
+            val base = mainUrl.removeSuffix("/")
+            val url = if (request.data == "all") {
+                if (page > 1) "$base/most-popular-drama/page/$page/" else "$base/most-popular-drama/"
             } else {
-                app.get(mainUrl).document
+                mainUrl
             }
+            val doc = app.get(url).document
             newHomePageResponse(request, doc.toDramaCards())
         } catch (_: Throwable) {
             newHomePageResponse(request, emptyList())

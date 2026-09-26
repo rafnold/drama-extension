@@ -5,6 +5,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONObject
+import org.json.JSONArray
 import org.jsoup.nodes.Document
 
 /**
@@ -42,6 +43,93 @@ class KDramaIn : MainAPI() {
         private val tvEpRe = Regex("id=(\\d+)&(amp;)?season=(\\d+)&(amp;)?episode=(\\d+)")
         private val movieRe = Regex("id=(\\d+)&(amp;)?type=movie")
         private val idRe = Regex("id=(\\d+)")
+
+        /** Reliability ranking of vidsync backend providers. 0 = junky
+         *  sources (gambling-site streams, wrong-language dubs); only used
+         *  as a last resort when no reliable provider has anything. */
+        private val PROVIDER_TRUST = mapOf(
+            "castle" to 3,
+            "vidsrc" to 2,
+            "vidsrc-rescrape" to 2,
+            "kisskh" to 1,
+        )
+
+        private fun qualityRank(quality: String): Int = when (quality.lowercase().trim()) {
+            "4k", "2160p", "uhd" -> 2160
+            "1440p", "2k" -> 1440
+            "1080p", "fhd" -> 1080
+            "720p" -> 720
+            "540p" -> 540
+            "480p" -> 480
+            "360p" -> 360
+            "240p" -> 240
+            else -> 0 // Auto / unknown
+        }
+
+        private data class VideoSource(
+            val provider: String,
+            val trust: Int,
+            val displayName: String,
+            val quality: String,
+            val qualityRank: Int,
+            val type: String,
+            val url: String,
+            val audioLabel: String?,
+        )
+
+        /** Language name / ISO code → BCP-47-ish 2-3 letter code. */
+        private val langNames = mapOf(
+            "english" to "en", "eng" to "en", "en" to "en",
+            "korean" to "ko", "kor" to "ko", "ko" to "ko",
+            "japanese" to "ja", "jpn" to "ja", "ja" to "ja",
+            "chinese" to "zh", "chi" to "zh", "zho" to "zh", "zh" to "zh",
+            "mandarin" to "zh", "cantonese" to "yue", "yue" to "yue",
+            "thai" to "th", "tha" to "th", "th" to "th",
+            "indonesian" to "id", "ind" to "id", "id" to "id",
+            "malay" to "ms", "msa" to "ms", "ms" to "ms",
+            "french" to "fr", "fra" to "fr", "fre" to "fr", "fr" to "fr",
+            "german" to "de", "deu" to "de", "ger" to "de", "de" to "de",
+            "spanish" to "es", "spa" to "es", "es" to "es",
+            "italian" to "it", "ita" to "it", "it" to "it",
+            "russian" to "ru", "rus" to "ru", "ru" to "ru",
+            "arabic" to "ar", "ara" to "ar", "ar" to "ar",
+            "dutch" to "nl", "nld" to "nl", "dut" to "nl", "nl" to "nl",
+            "portuguese" to "pt", "por" to "pt", "pt" to "pt",
+            "turkish" to "tr", "tur" to "tr", "tr" to "tr",
+            "vietnamese" to "vi", "vie" to "vi", "vi" to "vi",
+            "hindi" to "hi", "hin" to "hi", "hi" to "hi",
+            "czech" to "cs", "ces" to "cs", "cze" to "cs", "cs" to "cs",
+            "polish" to "pl", "pol" to "pl", "pl" to "pl",
+            "hungarian" to "hu", "hun" to "hu", "hu" to "hu",
+            "finnish" to "fi", "fin" to "fi", "fi" to "fi",
+            "swedish" to "sv", "swe" to "sv", "sv" to "sv",
+            "norwegian" to "no", "nor" to "no", "no" to "no",
+            "danish" to "da", "dan" to "da", "da" to "da",
+            "romanian" to "ro", "ron" to "ro", "rum" to "ro", "ro" to "ro",
+            "bulgarian" to "bg", "bul" to "bg", "bg" to "bg",
+            "albanian" to "sq", "sqi" to "sq", "sq" to "sq",
+            "greek" to "el", "gre" to "el", "ell" to "el", "el" to "el",
+            "hebrew" to "he", "heb" to "he", "he" to "he",
+            "urdu" to "ur", "urd" to "ur", "ur" to "ur",
+            "persian" to "fa", "farsi" to "fa", "fas" to "fa", "fa" to "fa",
+            "khmer" to "km", "khm" to "km", "km" to "km",
+            "myanmar" to "my", "burmese" to "my", "mya" to "my", "my" to "my",
+            "lao" to "lo", "lo" to "lo",
+            "croatian" to "hr", "hrv" to "hr", "hr" to "hr",
+            "serbian" to "sr", "srp" to "sr", "sr" to "sr",
+            "ukrainian" to "uk", "ukr" to "uk", "uk" to "uk",
+        )
+
+        private fun String?.langCode(): String? {
+            val s = this?.lowercase()?.trim() ?: return null
+            if (s.length in 1..3 && s.all { it.isLetter() }) langNames[s]?.let { return it }
+            // Try tokens from file names: "English-Dub.eng.srt", "-Forced.kor.srt"
+            val tokens = s.split(Regex("[^a-z]+"))
+            for (t in tokens) if (t.length in 2..3 && langNames[t] != null) return langNames[t]
+            // Try full words: "English 2" → english
+            for (t in tokens) if (t.length >= 4 && langNames[t] != null) return langNames[t]
+            return null
+        }
     }
 
     // ------------------------------------------------------------------
@@ -203,11 +291,12 @@ class KDramaIn : MainAPI() {
             }
 
             val text = app.get(VIDSYNC_API, params = params, referer = embedUrl).text
-            val seen = LinkedHashSet<String>()
-            var added = false
+
             // The API is JSON-lines. provider-result lines carry a nested
             // "sources" array whose objects contain nested objects
             // ("headers", "audioTracks", ...), so parse with a real JSON parser.
+            val candidates = mutableListOf<VideoSource>()
+            val subtitleCands = mutableListOf<Triple<Int, String, String>>() // trust, lang, url
             for (line in text.lines()) {
                 if (!line.contains("provider-result")) continue
                 val obj = try {
@@ -216,36 +305,145 @@ class KDramaIn : MainAPI() {
                     continue
                 }
                 if (obj.optString("type") != "provider-result") continue
-                val provider = obj.optString("provider").ifBlank { "server" }
+                val provider = obj.optString("provider").ifBlank { continue }
+                val trust = PROVIDER_TRUST[provider] ?: 0
                 val sources = obj.optJSONArray("sources") ?: continue
                 for (i in 0 until sources.length()) {
                     val s = sources.optJSONObject(i) ?: continue
                     var url = s.optString("url").ifBlank { s.optString("rawUrl") }.ifBlank { continue }
                     if (url.startsWith("/")) url = "https://vidsync.pro$url"
                     if (!url.startsWith("http")) continue
-                    if (!seen.add(url)) continue
-                    val quality = s.optString("quality").ifBlank { "auto" }
-                    val mediaType = s.optString("type")
-                    val isHls = mediaType.equals("hls", true)
-                        || url.contains(".m3u8") || quality.contains("hls", true)
-                    callback(
-                        newExtractorLink(
-                            name,
-                            "$provider $quality",
-                            url,
-                            if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
-                        ) {
-                            referer = embedUrl
-                            this.quality = Regex("(\\d{2,4})p?").find(quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-                            headers = mapOf("User-Agent" to UA)
+                    // Skip sources that resolved to a different episode
+                    // (vidsync sometimes maps an episode to a wrong file).
+                    val edition = s.optJSONObject("edition")
+                    val resE = edition?.opt("resolvedEpisode")?.let { (it as? Number)?.toInt() }
+                    val resS = edition?.opt("resolvedSeason")?.let { (it as? Number)?.toInt() }
+                    if (resE != null && episode != null && resE != episode) continue
+                    if (resS != null && season != null && resS != season) continue
+                    val quality = s.optString("quality").ifBlank { "Auto" }
+                    // Dub label: if the stream includes an original-audio track
+                    // (multi-audio), leave it unlabeled; otherwise show the
+                    // dubbed language so users can tell dubs apart.
+                    val audioTracks = s.optJSONArray("audioTracks")
+                    var audioLabel: String? = null
+                    if (audioTracks != null && audioTracks.length() > 0) {
+                        var hasOriginal = false
+                        var firstDub: String? = null
+                        for (j in 0 until audioTracks.length()) {
+                            val at = audioTracks.optJSONObject(j) ?: continue
+                            if (at.optBoolean("original", false) ||
+                                at.optString("language").equals("original", true)
+                            ) {
+                                hasOriginal = true
+                                continue
+                            }
+                            if (firstDub == null) {
+                                firstDub = at.optString("label")
+                                    .ifBlank { at.optString("language") }
+                            }
                         }
+                        if (!hasOriginal && firstDub != null) audioLabel = firstDub
+                    }
+                    val displayName = s.optJSONObject("provider")?.optString("name")
+                        ?.ifBlank { null } ?: provider.replaceFirstChar { it.uppercase() }
+                    candidates += VideoSource(
+                        provider = provider,
+                        trust = trust,
+                        displayName = displayName,
+                        quality = quality,
+                        qualityRank = qualityRank(quality),
+                        type = s.optString("type"),
+                        url = url,
+                        audioLabel = audioLabel,
                     )
-                    added = true
+                    // Per-source subtitles (e.g. kisskh)
+                    val subs = s.optJSONArray("subtitles") ?: JSONArray()
+                    collectSubs(subs, trust, subtitleCands)
+                }
+                // Provider-level subtitles (e.g. castle, vidsrc)
+                collectSubs(obj.optJSONArray("subtitles") ?: JSONArray(), trust, subtitleCands)
+            }
+
+            // Prefer reliable providers; fall back to everything if they are empty.
+            val reliable = candidates.filter { it.trust > 0 }
+            val pickedAll = if (reliable.isNotEmpty()) reliable else candidates
+            // vidsrc-rescrape URLs are relay-wrapped and more robust than the
+            // direct vidapi.cloud ones: drop the direct twin when both exist.
+            val picked = pickedAll.filterNot { c ->
+                c.provider == "vidsrc" && pickedAll.any {
+                    it.provider == "vidsrc-rescrape" &&
+                        it.qualityRank == c.qualityRank && it.audioLabel == c.audioLabel
                 }
             }
-            added
+            // Keep the first occurrence per (provider, audio, quality).
+            val deduped = linkedMapOf<String, VideoSource>()
+            for (c in picked) {
+                val key = "${c.provider}|${c.audioLabel ?: "orig"}|${c.quality}"
+                if (!deduped.containsKey(key)) deduped[key] = c
+            }
+            val links = deduped.values
+                .sortedWith(compareByDescending<VideoSource> { it.audioLabel == null } // original audio first
+                    .thenByDescending { it.trust }
+                    .thenByDescending { it.qualityRank }
+                    .thenBy { it.quality.lowercase() })
+            for (c in links) {
+                val isHls = c.type.equals("hls", true) || c.url.contains(".m3u8")
+                val isDash = c.type.equals("mpd", true) || c.url.contains(".mpd")
+                val label = "${c.displayName} ${c.quality}" + (c.audioLabel?.let { " ($it)" } ?: "")
+                callback(
+                    newExtractorLink(
+                        name,
+                        label,
+                        c.url,
+                        when {
+                            isDash -> ExtractorLinkType.DASH
+                            isHls -> ExtractorLinkType.M3U8
+                            else -> ExtractorLinkType.VIDEO
+                        },
+                    ) {
+                        referer = embedUrl
+                        this.quality = c.qualityRank
+                        headers = mapOf("User-Agent" to UA)
+                    }
+                )
+            }
+
+            // Subtitles: dedupe by URL, then by language (most trusted wins).
+            val subSeenUrl = LinkedHashSet<String>()
+            val subSeenLang = LinkedHashSet<String>()
+            val subs = subtitleCands
+                .sortedWith(compareByDescending<Triple<Int, String, String>> { it.first })
+            for ((trust, lang, url) in subs) {
+                if (!subSeenUrl.add(url)) continue
+                val key = if (lang.isBlank()) url else lang.lowercase()
+                if (lang.isNotBlank() && !subSeenLang.add(key)) continue
+                subtitleCallback(newSubtitleFile(lang, url))
+            }
+            links.isNotEmpty()
         } catch (_: Throwable) {
             false
         }
+    }
+
+    private fun collectSubs(subs: JSONArray, trust: Int, out: MutableList<Triple<Int, String, String>>) {
+        for (i in 0 until subs.length()) {
+            val s = subs.optJSONObject(i) ?: continue
+            var subUrl = s.optString("file").ifBlank { s.optString("url") }
+            if (subUrl.startsWith("/")) subUrl = "https://vidsync.pro$subUrl"
+            if (!subUrl.startsWith("http")) continue
+            out += Triple(trust, s.langCodeFromAny() ?: "", subUrl)
+        }
+    }
+
+    /** Resolves a subtitle entry's language: code field → file name → label. */
+    private fun JSONObject.langCodeFromAny(): String? {
+        val fromField = optString("language")
+        if (fromField.length in 2..3 && fromField.all { it.isLetter() }) return fromField
+        val fileName = optString("file").ifBlank { optString("url") }
+            .substringAfterLast('/')
+        for (suf in listOf(".vtt", ".srt", ".ass", ".ssa")) {
+            if (fileName.endsWith(suf)) return fileName.removeSuffix(suf).langCode()
+        }
+        return fileName.langCode() ?: optString("label").langCode()
     }
 }

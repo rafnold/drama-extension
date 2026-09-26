@@ -1,7 +1,7 @@
 // DramaExtension - Asian drama streaming providers (DramaNice + KDrama.in)
 
 // Use an integer for version numbers
-version = 3
+version = 4
 
 dependencies {
     // jsoup 1.18.3 is compiled against jspecify annotations (provided scope),
