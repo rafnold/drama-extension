@@ -50,11 +50,28 @@ class DramaNice : MainAPI() {
     // Helpers
     // ------------------------------------------------------------------
 
+    /**
+     * Absolute-URLs a link against [mainUrl]. The app's HTML documents are
+     * parsed without a base URI, so jsoup's `abs:href` resolves relative
+     * links to empty strings; build absolute URLs manually instead.
+     */
+    private fun toAbsoluteUrl(href: String?): String? {
+        if (href.isNullOrBlank()) return null
+        return when {
+            href.startsWith("http://") || href.startsWith("https://") -> href
+            href.startsWith("//") -> "https:$href"
+            else -> {
+                val base = mainUrl.removeSuffix("/")
+                if (href.startsWith("/")) "$base$href" else "$base/$href"
+            }
+        }
+    }
+
     private fun Document.toDramaCards(): List<SearchResponse> {
         val seen = LinkedHashSet<String>()
         val out = mutableListOf<SearchResponse>()
         for (a in select("a[href*=/drama/]")) {
-            val url = a.attr("abs:href")
+            val url = toAbsoluteUrl(a.attr("href")) ?: continue
             if (!seen.add(url)) continue
             val nm = a.attr("title").trim().ifBlank { a.text().trim() }
             if (nm.isBlank()) continue
@@ -179,8 +196,8 @@ class DramaNice : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         return try {
-            val doc = if (request.name == "all") {
-                app.get("$mainUrl/list-all-drama/").document
+            val doc = if (request.data == "all") {
+                app.get(mainUrl.removeSuffix("/") + "/list-all-drama/").document
             } else {
                 app.get(mainUrl).document
             }
@@ -229,7 +246,8 @@ class DramaNice : MainAPI() {
             val n = Regex("episode-(\\d+)").find(a.attr("href"))?.groupValues?.get(1)
                 ?.toIntOrNull() ?: continue
             if (!seen.add(n)) continue
-            episodes += newEpisode(a.attr("abs:href")) {
+            val eUrl = toAbsoluteUrl(a.attr("href")) ?: continue
+            episodes += newEpisode(eUrl) {
                 name = "Episode $n"
                 season = 1
                 episode = n
@@ -272,7 +290,7 @@ class DramaNice : MainAPI() {
                 ?.let { it.attr("src").ifBlank { it.attr("data-src") } }
                 ?.takeIf { it.contains("dramavideo.se") }
                 ?: return false
-            val watchUrl = fixUrl(iframeSrc)
+            val watchUrl = toAbsoluteUrl(iframeSrc) ?: return false
 
             val wdoc = app.get(watchUrl, referer = data).document
             val servers = wdoc.select("li.linkserver")

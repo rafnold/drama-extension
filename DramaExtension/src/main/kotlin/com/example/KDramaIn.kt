@@ -48,11 +48,28 @@ class KDramaIn : MainAPI() {
     // Helpers
     // ------------------------------------------------------------------
 
+    /**
+     * Absolute-URLs a link against [mainUrl]. The app's HTML documents are
+     * parsed without a base URI, so jsoup's `abs:href` resolves relative
+     * links to empty strings; build absolute URLs manually instead.
+     */
+    private fun toAbsoluteUrl(href: String?): String? {
+        if (href.isNullOrBlank()) return null
+        return when {
+            href.startsWith("http://") || href.startsWith("https://") -> href
+            href.startsWith("//") -> "https:$href"
+            else -> {
+                val base = mainUrl.removeSuffix("/")
+                if (href.startsWith("/")) "$base$href" else "$base/$href"
+            }
+        }
+    }
+
     private fun Document.toCards(): List<SearchResponse> {
         val seen = LinkedHashSet<String>()
         val out = mutableListOf<SearchResponse>()
         for (a in select("a[href*=detail.php]")) {
-            val url = a.attr("abs:href")
+            val url = toAbsoluteUrl(a.attr("href")) ?: continue
             if (!seen.add(url)) continue
             val nm = a.selectFirst("h3")?.text()?.trim() ?: continue
             if (nm.isBlank()) continue
@@ -80,7 +97,7 @@ class KDramaIn : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         return try {
-            val url = "$mainUrl/dramas.php?type=${request.name}&page=${page.coerceAtLeast(1)}"
+            val url = mainUrl.removeSuffix("/") + "/dramas.php?type=${request.data}&page=${page.coerceAtLeast(1)}"
             val doc = app.get(url).document
             newHomePageResponse(request, doc.toCards())
         } catch (_: Throwable) {
@@ -131,7 +148,8 @@ class KDramaIn : MainAPI() {
                 val s = m.groupValues[3].toInt()
                 val e = m.groupValues[5].toInt()
                 if (!seen.add("$s-$e")) continue
-                list += newEpisode(fixUrl(href)) {
+                val eUrl = toAbsoluteUrl(href) ?: continue
+                list += newEpisode(eUrl) {
                     name = "Episode $e"
                     season = s
                     episode = e
@@ -202,7 +220,9 @@ class KDramaIn : MainAPI() {
                 val sources = obj.optJSONArray("sources") ?: continue
                 for (i in 0 until sources.length()) {
                     val s = sources.optJSONObject(i) ?: continue
-                    val url = s.optString("url").ifBlank { s.optString("rawUrl") }.ifBlank { continue }
+                    var url = s.optString("url").ifBlank { s.optString("rawUrl") }.ifBlank { continue }
+                    if (url.startsWith("/")) url = "https://vidsync.pro$url"
+                    if (!url.startsWith("http")) continue
                     if (!seen.add(url)) continue
                     val quality = s.optString("quality").ifBlank { "auto" }
                     val mediaType = s.optString("type")
