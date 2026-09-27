@@ -67,7 +67,9 @@ live-verify before coding, fallback discipline, verification gate before commit)
   "list":["https://cdn.dramav2.xyz/<uuid>/video.m3u8","https://cdn.drama3.click/<uuid>/video.m3u8"]}`.
   Playlist is a valid HLS VOD. M3U8 + segments fetched fine with `referer = <embed url>`.
 - Subtitles: subApi requires **Referer = embed page URL** (else `{"ok":false,"error":"Forbidden."}`);
-  returns `[{"lang":"en","format":"srt","url":"https://cdn.drama3.click/uploads/subs/<uuid>.en.srt?st=...&e=..."}]`.
+  returns `[{"lang":"en","format":"srt","url":"https://storage.dramavibe.cfd/uploads/subs/<uuid>.en.srt?st=...&e=..."}]`.
+  Sub CDN host rotates (v5: `cdn.drama3.click`; 2026-09-27 re-run: `storage.dramavibe.cfd`) —
+  the URL comes from the API response, so no code change needed; re-verify only if subs break.
 - Search: `?s=` is client-side rendered only (dead server-side). WP REST `search=` works
   (title search); `s=` param is ignored by REST (returns latest). Catalog = 477 series.
 - Movies (e.g. `gameboys-the-movie-2021`) are single-episode series — the episodes path covers them.
