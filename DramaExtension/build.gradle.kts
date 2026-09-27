@@ -1,7 +1,7 @@
-// DramaExtension - Asian drama streaming providers (DramaNice + KDrama.in)
+// DramaExtension - Asian drama streaming providers (DramaNice + KDrama.in + KissAsian)
 
 // Use an integer for version numbers
-version = 4
+version = 5
 
 dependencies {
     // jsoup 1.18.3 is compiled against jspecify annotations (provided scope),
@@ -10,7 +10,7 @@ dependencies {
 }
 
 cloudstream {
-    description = "Asian drama streaming sites: DramaNice (dramanice.boo) and KDrama.in (k-drama.in). Resolves final m3u8/mp4 sources."
+    description = "Asian drama streaming sites: DramaNice (dramanice.boo), KDrama.in (k-drama.in) and KissAsian (kissasian.com.lv). Resolves final m3u8 sources with subtitles."
     authors = listOf("drama-scraper")
 
     /**

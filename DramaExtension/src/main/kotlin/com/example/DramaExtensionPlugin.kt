@@ -10,5 +10,6 @@ class DramaExtensionPlugin : Plugin() {
         // All providers are registered here.
         registerMainAPI(DramaNice())
         registerMainAPI(KDramaIn())
+        registerMainAPI(KissAsian())
     }
 }
