@@ -10,8 +10,9 @@ that hide their streams behind encrypted/JS player chains.
 |-------------|-----------------------|-------|
 | `DramaNice` | https://dramanice.boo | K/C/J drama. Episode pages embed `dramavideo.se`, whose player host serves an **AES-256-CBC encrypted page** (`encData`/`keyHex`/`ivHex`). The extension decrypts it and reads the `JSON.parse([{file, type, label}])` sources (m3u8). Full episode lists are recovered from the WordPress sitemaps. |
 | `KDrama.in` | https://k-drama.in    | K/C/J drama + movies, indexed by TMDB id. Streams are resolved through the `vidsync.pro` extraction session API (`/api/extraction/session?type=tv\|movie&id=...&season=..&episode=..`), which returns per-provider sources (m3u8 relay + direct mp4/m3u8). |
+| `KissAsian` | https://wwv21.kissasian.com.lv/ | K/C/J/TH/HK/TW/PH drama + movies (WordPress site, 477-series catalog). 8 tabs (Popular + 7 country archives, paginated). Search via WordPress REST `series?search=` (the on-site `?s=` search is client-side only). The player embed page is deliberately empty — the extension calls the runtime endpoint `player_source.php?episode=N` on the embed host to get the final M3U8 list (dramav2 + drama3 CDNs), with legacy in-page regexes as fallback. Subtitles come from the player page's Referer-gated `subApi` (signed `.srt` URLs). |
 
-Both providers support home page browsing, search, TV series and movie loading.
+All providers support home page browsing, search, TV series and movie loading.
 
 ## Building
 
@@ -66,7 +67,7 @@ The `.cs3` file is produced under `DramaExtension/build/`, the plugin list at
 In the app: **Settings → Extensions → Add Repository**, then paste the
 `repo.json` URL from Option A, e.g.
 `https://raw.githubusercontent.com/<user>/<repo>/builds/repo.json`.
-The `DramaNice` / `KDrama.in` plugins appear in the list - install them.
+The `DramaNice` / `KDrama.in` / `KissAsian` providers appear in the list - install them.
 
 Note: the app expects a `Repository` JSON manifest (`repo.json` with
 `pluginLists`); pasting the bare `plugins.json` or a raw `.cs3` URL does not
@@ -122,6 +123,22 @@ dramavideo and are skipped.
    self-contained m3u8/segments) and `rawUrl` (direct CDN), plus `quality`.
 4. Relay URLs are preferred because they rewrite playlist segments
    server-side, so playback needs no special headers.
+
+### KissAsian chain
+
+1. Episode page (`/series/<slug>-episode-N/`) has
+   `li.Standard Server.selected[data-video]` pointing at the embed page
+   `https://catalog.dramavibe.cfd/player_embed.php?episode=N`.
+2. The embed page is deliberately empty (`var src = ''`, `var srcCdnList = []`),
+   so the extension calls the runtime endpoint on the same host:
+   `GET https://catalog.dramavibe.cfd/player_source.php?episode=N` →
+   `{"ok":true,"src":"<m3u8>","list":["<m3u8>","<m3u8>"]}` (dramav2 + drama3
+   CDNs, valid HLS VOD). Legacy in-page regexes (`var src`, `var srcCdnList`,
+   raw `.m3u8`) remain as fallback, so a player change degrades rather than
+   breaks playback.
+3. Subtitles: the embed page's `subApi` (hosted on `storage.dramavibe.cfd`,
+   returns time-limited signed `.srt` URLs) requires **Referer = the embed
+   page URL**, otherwise it answers `Forbidden`.
 
 ## Notes
 
