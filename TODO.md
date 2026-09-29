@@ -61,6 +61,42 @@ no failures across all 4 providers):
   m3u8 fetch = SSL handshake failure on `hls.aniwatch.al` — incomplete Cloudflare
   Origin CA chain, accepted by design); empty player episode → ok=false, 0 links.
 
+## Pending action — new GitHub PAT + manifest cleanup (user does, ~2 min)
+
+The fine-grained PAT embedded in the local git remote (`github_pat_…`) **expired /
+was revoked on 2026-09-29 mid-session** (it worked for the make-public API call,
+then started returning 401 "Bad credentials"). Consequences:
+
+- **No local `git push` works** (dead token in the remote URL) — until replaced.
+- The public `builds` branch still carries the **dead token string** embedded in the
+  `repo.json`/`plugins.json` URLs (from the private-repo auth workaround). Harmless:
+  GitHub serves the public files regardless of the stale credentials — full chain
+  verified 200 (repo.json → plugins.json → .cs3), `.cs3` = v6 build (85384 bytes,
+  sha256 `8704ca30f71872597042059c26ab675337be1d9d11d2dadbafb6e32e3a034433`).
+  Just cosmetic until cleaned.
+- The app install link already works with zero auth:
+  **`https://raw.githubusercontent.com/rafnold/drama-extension/builds/repo.json`**
+
+**User step — create a replacement PAT:**
+github.com → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** →
+**Generate new token** (direct URL: `https://github.com/settings/personal-access-tokens/new`):
+1. **Note**: `drama-extension agent` (any label).
+2. **Expiration**: **1 year** or No expiration (a short expiration repeats this exact failure).
+3. **Repository access**: **Only selected repositories** → `rafnold/drama-extension`.
+4. **Permissions**: **Contents: Read and write** — nothing else needed.
+5. Copy the `github_pat_…` token and paste it to the agent (it's shown only once).
+
+**Agent then does (verification gate for this step):**
+1. `git remote set-url origin https://x-access-token:<new>@github.com/rafnold/drama-extension.git`
+2. Push any local commits that piled up on `main` meanwhile (this TODO update is one of them).
+3. `git push -f origin 306319d:builds` — `306319d` is the clean CI-generated manifests
+   (still in the local object store); this removes the dead token strings from the
+   public branch. (A future v7 push to main regenerates clean manifests via CI anyway.)
+4. Verify: `curl` the public `repo.json` + `plugins.json` → **no** `x-access-token` /
+   `github_pat` substrings; chain fetch 200s; `.cs3` sha256 == `8704ca30…` as above.
+
+Optional: delete the old dead token at `github.com/settings/tokens`.
+
 ## Previous: v5 — RELEASED + live-verified (2026-09-27)
 - **Live (v5, commit `de00be1` on `main`, CI run SUCCESS 2026-09-27):**
   - `DramaNice` — All tab = paginated image listing, poster fix (since v4).
