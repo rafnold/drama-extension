@@ -3,7 +3,7 @@
 Read `AI_RULES.md` first — it contains the binding working agreements (complete code only,
 live-verify before coding, fallback discipline, verification gate before commit).
 
-## Current status: **v6 IN PROGRESS — release gate verified, awaiting push** (2026-09-29)
+## Current status: **v6 RELEASED + live-verified** (2026-09-29) — nothing pending
 
 All three pending items are implemented and live-verified (harness run 2026-09-29, exit 0,
 no failures across all 4 providers):
@@ -23,19 +23,45 @@ no failures across all 4 providers):
    Known CDN quirk: zoko's m3u8 CDN (`hls.aniwatch.al`) serves an incomplete Cloudflare
    Origin CA chain — strict TLS clients fail the handshake; link + referer are correct.
 
-- **v6 release gate (verified 2026-09-29, mandatory order):**
-  1. Live harness: green for all 4 providers — KissAsian (9 tabs incl. Latest 27 cards,
-     tw p3=0, kr p3=36, movie chain, 2×series end-to-end 2 M3U8 + sub), KDrama.in
-     (all tabs + cache HIT/MISS/EXPIRED + movie chain), DramaNice (all tabs), Dramahood
-     (4 tabs, p2 overlap=0, p99=0, search 10, load 8 eps with clean tags/status, all 3
-     chains PASS incl. zoko TLS exception accepted, empty player → 0 links).
+
+- **Live (v6, commit `ca67bd9` on `main`, CI build pushed to `builds` 2026-09-29, branch `306319d`):**
+  - `DramaNice` — All tab = paginated image listing, poster fix (since v4).
+  - `KDramaIn` — VidSync-API source curation, subtitles via `newSubtitleFile` (v4);
+    last-good curation cache against vidsync.pro flakes (v6).
+  - `KissAsian` — 9 main tabs (Popular + 7 countries + Latest), WP REST search,
+    runtime `player_source.php` M3U8 chain, subApi subtitles (v5); h3-strict card
+    parser guards against home-page widget leakage (v6).
+  - `Dramahood` — new (v6): 4 tabs, `?s=` search, 3 decrypted player chains → m3u8.
+- **Release gate v6 (all steps verified 2026-09-29, in the mandatory order):**
+  1. Live harness (`/workspace/tmp-artifacts/harness-proj`): 4/4 providers green (details below).
   2. Build: `./gradlew make makePluginsJson` → `DramaExtension/build/DramaExtension.cs3`
-     + `build/plugins.json` (version 6, description lists all four providers).
-  3. Push → CI → live builds verification: **see follow-up docs commit** (fills in the
-     commit hash / CI run / live `builds/plugins.json` version + hash match).
+     (85384 bytes, sha256 `8704ca30f71872597042059c26ab675337be1d9d11d2dadbafb6e32e3a034433`)
+     + `build/plugins.json` (version 6).
+  3. Push `ca67bd9` → CI build → `builds` force-pushed to `306319d`; live
+     `builds/plugins.json` reports `"version": 6` (description lists all four
+     providers); live `.cs3` sha256 == local build (8704ca30…, 85384 bytes).
+- **Remaining (user-side only):** hit "Update" in the CloudStream app to pick up v6;
+  confirm Dramahood tabs stream on device (zoko-chain episodes need a lenient-TLS
+  player — the CDN cert chain is broken on their side).
+
+### v6 harness evidence (run 2026-09-29, exit 0)
+- KissAsian: 9 tabs green (kr 36, cn 34, jp 36, th 36, hk 2, tw 36, ph 12, popular 36,
+  **Latest 27** with posters); `search("bias")` → 2 REST results;
+  movie page → 1 episode → 2 M3U8 + 1 sub; series (The Scandal 2026, My Bias My Boss)
+  → 2 M3U8 + 1 sub each; tw p3 → 0 (404 over-run guard); kr p3 → 36 cards.
+- KDrama.in: all 6 tabs + movie tab green (movie chain 11 links + 3 subs);
+  cache reflection test: HIT (9 sources from cache), MISS, stale entry → EXPIRED;
+  3 rapid repeats all ok.
+- DramaNice: all tabs green (16 eps, 2 links).
+- Dramahood: 4 tabs green (drama 10, kshow 10, latest-drama 6 deduped, latest-kshow 8);
+  p2 overlap=0, p99 → 0; `search("scandal")` → 10; load The Scandal → 8 eps ascending,
+  tags `[Historical, Romance, Drama, Melodrama, Korean]`, status Ongoing, year 2026;
+  chains: vidbasic PASS (2 M3U8, `stream.vidbasic.top`, both verified), dramavideo
+  PASS (1 M3U8, `hls.dramavideo.se`, verified), embedload PASS (1 M3U8, link correct;
+  m3u8 fetch = SSL handshake failure on `hls.aniwatch.al` — incomplete Cloudflare
+  Origin CA chain, accepted by design); empty player episode → ok=false, 0 links.
 
 ## Previous: v5 — RELEASED + live-verified (2026-09-27)
-
 - **Live (v5, commit `de00be1` on `main`, CI run SUCCESS 2026-09-27):**
   - `DramaNice` — All tab = paginated image listing, poster fix (since v4).
   - `KDramaIn` — VidSync-API source curation, subtitles via `newSubtitleFile` (since v4).
