@@ -105,7 +105,7 @@ These are the technical agreements made while building this CloudStream 3 extens
 
 ## 7. Verification gate before commit (non-negotiable order)
 
-1. **Live harness** (`/tmp/harness-proj`; build/run: `./gradlew -p /tmp/harness-proj run`): the JVM harness runs every provider against the live site —
+1. **Live harness** (`/workspace/tmp-artifacts/harness-proj`; build/run: `./gradlew -p /workspace/tmp-artifacts/harness-proj run`): the JVM harness runs every provider against the live site —
    `getMainPage`, `search`, `load`, `loadLinks`. New providers MUST be added to
    `listOf<MainAPI>(...)` in `Harness.kt` and pass before release.
    (harness needs the `android.util.Base64` JVM shim - already present in the project sources.)
@@ -120,7 +120,9 @@ These are the technical agreements made while building this CloudStream 3 extens
 
 - Small, verifiable steps — one chain at a time (cards → detail → episodes → player → source API
   → subtitles). Verify each against the live site before building the next.
-- Keep evidence in `/tmp` (fetched HTML, JS, JSON responses, the cloudstream sources at
-  `/tmp/cloudstream-903ef47`, saved builds) — note useful artifacts in `TODO.md`.
+- Keep raw evidence in `/tmp` (fetched HTML, JS, JSON responses, saved builds). Persistent
+  artifacts (harness, cloudstream sources at `/workspace/tmp-artifacts/cloudstream-903ef47`,
+  captured pages, stub classes) live in `/workspace/tmp-artifacts/` — note useful artifacts in
+  `TODO.md` and move anything that must survive a reboot there, not `/tmp`.
 - If blocked or running out of context: finish what is in-flight into a **complete** file state
   (no half-methods), then update `TODO.md` with the exact next step.

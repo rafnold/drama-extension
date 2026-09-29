@@ -1,9 +1,40 @@
-# TODO.md — Session handoff (updated 2026-09-27)
+# TODO.md — Session handoff (updated 2026-09-29)
 
 Read `AI_RULES.md` first — it contains the binding working agreements (complete code only,
 live-verify before coding, fallback discipline, verification gate before commit).
 
-## Current status: **v5 RELEASED + live-verified** (2026-09-27) — nothing pending
+## Current status: **v6 IN PROGRESS — release gate verified, awaiting push** (2026-09-29)
+
+All three pending items are implemented and live-verified (harness run 2026-09-29, exit 0,
+no failures across all 4 providers):
+
+1. **KissAsian** — pagination beyond page 2 verified live (tw p3 → clean 404 → 0 cards;
+   kr p3 → 36 real cards); new **Latest** tab from `/recently-added-movie/` (27 cards,
+   different markup, own parser); `toCards()` now requires the card's own
+   `<h3 class="title">` so home-page widget leakage can never happen (home page has 0 `<h3>`).
+2. **KDrama.in** — last-good curation cache: parsed curation per episode is cached in memory
+   (12 h TTL, 256-entry cap); when vidsync.pro flakes, `loadLinks` falls back to the cached
+   sources instead of 0 links. Reflection-tested in the harness (HIT/MISS/EXPIRED).
+3. **Dramahood** (dramahood.mom) — new provider, fully live-reverse-engineered before coding:
+   4 catalog tabs (drama, kshow + two "latest releases" archives), `?s=` search,
+   series/episode parsing, and all three player chains decrypted to m3u8 (dramavideo.se
+   AES hex-key, embedload.cfd→zokoanime.video XOR+base64, vidbasic.top AES fixed key;
+   empty players handled). See `Dramahood.kt` KDoc + README "Dramahood chain".
+   Known CDN quirk: zoko's m3u8 CDN (`hls.aniwatch.al`) serves an incomplete Cloudflare
+   Origin CA chain — strict TLS clients fail the handshake; link + referer are correct.
+
+- **v6 release gate (verified 2026-09-29, mandatory order):**
+  1. Live harness: green for all 4 providers — KissAsian (9 tabs incl. Latest 27 cards,
+     tw p3=0, kr p3=36, movie chain, 2×series end-to-end 2 M3U8 + sub), KDrama.in
+     (all tabs + cache HIT/MISS/EXPIRED + movie chain), DramaNice (all tabs), Dramahood
+     (4 tabs, p2 overlap=0, p99=0, search 10, load 8 eps with clean tags/status, all 3
+     chains PASS incl. zoko TLS exception accepted, empty player → 0 links).
+  2. Build: `./gradlew make makePluginsJson` → `DramaExtension/build/DramaExtension.cs3`
+     + `build/plugins.json` (version 6, description lists all four providers).
+  3. Push → CI → live builds verification: **see follow-up docs commit** (fills in the
+     commit hash / CI run / live `builds/plugins.json` version + hash match).
+
+## Previous: v5 — RELEASED + live-verified (2026-09-27)
 
 - **Live (v5, commit `de00be1` on `main`, CI run SUCCESS 2026-09-27):**
   - `DramaNice` — All tab = paginated image listing, poster fix (since v4).
@@ -11,7 +42,7 @@ live-verify before coding, fallback discipline, verification gate before commit)
   - `KissAsian` — 8 main tabs (Popular + 7 countries), WP REST search, runtime
     `player_source.php` M3U8 chain, subApi subtitles (new in v5).
 - **Release gate (all steps verified 2026-09-27, in the mandatory order):**
-  1. Live harness (`/tmp/harness-proj`): 8/8 tabs real country-specific cards + posters
+  1. Live harness (`/workspace/tmp-artifacts/harness-proj`): 8/8 tabs real country-specific cards + posters
      (kr 58, cn 45, jp 62, th 59, hk 28, tw 27, ph 38, popular 47; page 2 works);
      `search("bias")` -> 2 REST results with real posters; load + loadLinks + subtitles
      green on KR/CN/TH/HK/TW samples (2 M3U8 links per episode, dramav2 + drama3 CDNs,
@@ -74,22 +105,32 @@ live-verify before coding, fallback discipline, verification gate before commit)
   (title search); `s=` param is ignored by REST (returns latest). Catalog = 477 series.
 - Movies (e.g. `gameboys-the-movie-2021`) are single-episode series — the episodes path covers them.
 
-## Useful artifacts in /tmp (may be gone after reboot — re-fetch if needed)
-- `/tmp/harness-proj` — JVM live-verification harness as a gradle project
-  (`./gradlew -p /tmp/harness-proj run`); `/tmp/harness/` — original harness sources
-  (Harness.kt runs `listOf<MainAPI>(DramaNice(), KDramaIn(), KissAsian())`).
-- `/tmp/ka-*.html/.js/.json` — captured KissAsian pages (drama-list, search page,
-  episode pages, `player_source.php`/subApi JSON) and theme JS.
-- `/tmp/cloudstream-903ef47`, `/tmp/cs-src`, `/tmp/csjar_check` — cloudstream sources /
-  unpacked stub classes (`SubtitleFile`, `MainAPIKt$newSubtitleFile`).
+## Useful artifacts (persistent — moved out of `/tmp` on 2026-09-28)
+Survives reboots: `/workspace/tmp-artifacts/`. Run the harness with
+`./gradlew -p /workspace/tmp-artifacts/harness-proj run` from the repo root.
+- `/workspace/tmp-artifacts/harness-proj` — JVM live-verification harness as a gradle
+  project; `/workspace/tmp-artifacts/harness/` — original harness sources (Harness.kt runs
+  `listOf<MainAPI>(DramaNice(), KDramaIn(), KissAsian(), Dramahood())` plus per-provider
+  extra-check sections) + `cp.txt` classpath. The harness compiles from its own verbatim
+  copies of the provider sources — sync them after repo edits.
+- `/workspace/tmp-artifacts/ka-*.html/.js/.json` — captured KissAsian pages (drama-list,
+  search page, episode pages, `player_source.php`/subApi JSON) and theme JS.
+- `/workspace/tmp-artifacts/cloudstream-903ef47`, `/workspace/tmp-artifacts/cs-src`,
+  `/workspace/tmp-artifacts/csjar_check` — cloudstream sources / unpacked stub classes
+  (`SubtitleFile`, `MainAPIKt$newSubtitleFile`).
+- `/workspace/tmp-artifacts/hj/` — extra JVM jars on the harness classpath (json,
+  jspecify, kotlinx-serialization, cryptography); `harness-json.jar` +
+  `harness-jspecify.jar` + `jsouptest/jsoup-1.22.1.jar` alongside.
+- `/workspace/tmp-artifacts/plugin-fresh` — cloudstream gradle plugin source @ `32895ae`
+  (the published commit; `./gradlew publishToMavenLocal` to rebuild mavenLocal).
 - Build stub: `/root/.gradle/caches/cloudstream/cloudstream/cloudstream.jar` (the exact stub
   the extension compiles against).
 - State doc: `drama-extension-state.md` (repo root) — full history incl. the v5 release.
 
 ## Next candidate work (optional — nothing pending)
-- New providers from the sibling `drama-scraper/` project (same pattern: live-verify the
-  chain -> harness -> gate).
-- KissAsian: verify `/country/<path>/page/N/` beyond page 2; consider a movie archive tab
-  (unverified).
-- KDrama.in: vidsync.pro extraction API is intermittent (timeouts/rate-limits); harness
-  tolerates 0-source runs — consider caching the last-good curation if flakes hit users.
+- More providers from the sibling `drama-scraper/` project (same pattern: live-verify the
+  chain -> harness -> gate). Remaining SITES: EverythingMoe, GoPlay, Einthusan, KissKH
+  (.ovh / .dk), AsianCrush, OnDemandChina, Dramafren, MyAsianTV, Asiaflix, Rive, Vidbox,
+  KissAsian.video.
+- Dramahood: the zoko chain's m3u8 CDN (`hls.aniwatch.al`) has an incomplete cert chain —
+  re-check whether it's been fixed before tightening the harness expectation.

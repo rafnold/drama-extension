@@ -10,7 +10,8 @@ that hide their streams behind encrypted/JS player chains.
 |-------------|-----------------------|-------|
 | `DramaNice` | https://dramanice.boo | K/C/J drama. Episode pages embed `dramavideo.se`, whose player host serves an **AES-256-CBC encrypted page** (`encData`/`keyHex`/`ivHex`). The extension decrypts it and reads the `JSON.parse([{file, type, label}])` sources (m3u8). Full episode lists are recovered from the WordPress sitemaps. |
 | `KDrama.in` | https://k-drama.in    | K/C/J drama + movies, indexed by TMDB id. Streams are resolved through the `vidsync.pro` extraction session API (`/api/extraction/session?type=tv\|movie&id=...&season=..&episode=..`), which returns per-provider sources (m3u8 relay + direct mp4/m3u8). |
-| `KissAsian` | https://wwv21.kissasian.com.lv/ | K/C/J/TH/HK/TW/PH drama + movies (WordPress site, 477-series catalog). 8 tabs (Popular + 7 country archives, paginated). Search via WordPress REST `series?search=` (the on-site `?s=` search is client-side only). The player embed page is deliberately empty — the extension calls the runtime endpoint `player_source.php?episode=N` on the embed host to get the final M3U8 list (dramav2 + drama3 CDNs), with legacy in-page regexes as fallback. Subtitles come from the player page's Referer-gated `subApi` (signed `.srt` URLs). |
+| `KissAsian` | https://wwv21.kissasian.com.lv/ | K/C/J/TH/HK/TW/PH drama + movies (WordPress site, 477-series catalog). 9 tabs (Popular + 7 country archives + Latest, paginated). Search via WordPress REST `series?search=` (the on-site `?s=` search is client-side only). The player embed page is deliberately empty — the extension calls the runtime endpoint `player_source.php?episode=N` on the embed host to get the final M3U8 list (dramav2 + drama3 CDNs), with legacy in-page regexes as fallback. Subtitles come from the player page's Referer-gated `subApi` (signed `.srt` URLs). |
+| `Dramahood` | https://dramahood.mom | K/C/J drama + KShows (WordPress site). 4 tabs (Drama, KShow + two "latest releases" archives, paginated). Server-rendered catalog and `?s=` search. Episodes embed one of three player hosts, each with its own decryption chain (AES-256-CBC hex-key, AES-256-CBC fixed key, or XOR+base64 JSON) — all resolved to the final m3u8. No subtitle files are shipped by the site. |
 
 All providers support home page browsing, search, TV series and movie loading.
 
@@ -67,7 +68,7 @@ The `.cs3` file is produced under `DramaExtension/build/`, the plugin list at
 In the app: **Settings → Extensions → Add Repository**, then paste the
 `repo.json` URL from Option A, e.g.
 `https://raw.githubusercontent.com/<user>/<repo>/builds/repo.json`.
-The `DramaNice` / `KDrama.in` / `KissAsian` providers appear in the list - install them.
+The `DramaNice` / `KDrama.in` / `KissAsian` / `Dramahood` providers appear in the list - install them.
 
 Note: the app expects a `Repository` JSON manifest (`repo.json` with
 `pluginLists`); pasting the bare `plugins.json` or a raw `.cs3` URL does not
@@ -139,6 +140,32 @@ dramavideo and are skipped.
 3. Subtitles: the embed page's `subApi` (hosted on `storage.dramavibe.cfd`,
    returns time-limited signed `.srt` URLs) requires **Referer = the embed
    page URL**, otherwise it answers `Forbidden`.
+
+### Dramahood chain
+
+Episode pages embed one of three player hosts (plus occasional empty players
+for episodes not yet uploaded — handled gracefully):
+
+1. **dramavideo.se** — same player family as DramaNice: `/watch?v=<n>` lists
+   `li.linkserver[data-video][data-provider]` entries; the player host (built
+   from base64 parts in `player.js`, fallback `player.dramavideo.se`) serves
+   an inline script with `encData`/`keyHex`/`ivHex` (AES-256-CBC, hex-encoded
+   key/iv) that decrypts to HTML containing `sources = JSON.parse([{file, type,
+   label}])` (m3u8) and `tracks` (subtitle files, currently always empty).
+2. **embedload.cfd** — `/watch?v=<n>` iframes `zokoanime.video`, whose page
+   carries `window.__P` (base64) that XOR-decodes (repeating key
+   `otaku-embed-v1`) to JSON `{"src":"<m3u8>","subtitles":[...]}`. Note: the
+   m3u8 CDN (`hls.aniwatch.al`) currently serves an incomplete Cloudflare
+   Origin CA chain, so strict TLS clients (and this harness) fail the
+   handshake — the link itself is correct and plays in lenient players.
+3. **vidbasic.top** — `/embed/<shortid>` iframes `/3rdplayer.html?key=<b64>`;
+   the 3rdplayer page's `data-name="crypto" data-value="<b64>"` decrypts with
+   AES-256-CBC (PKCS7) using the **fixed ASCII key/iv**
+   `94588293375053432799222445521289` / `5259228356829423` to the m3u8 URL.
+
+The two "latest releases" tabs list individual episode posts
+(`/<slug>-episode-N/`); the card parser normalizes them back to the series
+page and de-duplicates, so each series appears once (latest episode first).
 
 ## Notes
 

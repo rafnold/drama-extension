@@ -25,6 +25,16 @@ import org.jsoup.parser.Parser
  * Search uses the exposed WordPress REST API
  * (/wp-json/wp/v2/series?search=...); the site's ?s= page renders its result
  * list client-side only, so it is useless server-side.
+ *
+ * The "Latest" tab lists the site's "Drama Movie" page (recently added
+ * series AND movies), /recently-added-movie/ (30 cards/page, verified 2026-09-28):
+ *   <a href=".../series/<slug>/" title="Title (Year)">
+ *     <div class="cover" style="background-image: url('<poster>');">
+ *     <p class="title">Title (Year)</p>
+ *   </a>
+ * Pages past a country catalog either 301 to the homepage or render an empty
+ * listing, so toCards() only accepts <h3> titles — the homepage "Drama Movie"
+ * widget anchors (title attribute, no <h3>) must never become cards.
  */
 class KissAsian : MainAPI() {
 
@@ -42,6 +52,7 @@ class KissAsian : MainAPI() {
         "hk" to "Hong Kong",
         "tw" to "Taiwan",
         "ph" to "Philippines",
+        "latest" to "Latest",
     )
 
     companion object {
@@ -59,6 +70,7 @@ class KissAsian : MainAPI() {
         private val epRe = Regex("episode-(\\d+)")
         private val epParamRe = Regex("[?&]episode=(\\d+)")
         private val originRe = Regex("https?://[^/]+")
+        private val bgImageRe = Regex("url\\(\\s*['\"]?([^'\")]+)['\"]?\\s*\\)")
 
         private val countryPaths = mapOf(
             "kr" to "country/south-korea",
@@ -125,8 +137,10 @@ class KissAsian : MainAPI() {
             if (url.contains("-episode-")) continue
             if (!seen.add(url)) continue
 
-            val nm = a.selectFirst("h3")?.text()?.trim()
-                ?: a.attr("title").trim().ifBlank { a.text().trim() }
+            // Title must come from the card's <h3>; title-attribute/text
+            // fallbacks would pick up the homepage "Drama Movie" widget that
+            // appears when a country page over-runs its catalog.
+            val nm = a.selectFirst("h3")?.text()?.trim().orEmpty()
             if (nm.isBlank()) continue
 
             val img = a.selectFirst("img")
@@ -145,19 +159,61 @@ class KissAsian : MainAPI() {
         return out
     }
 
+    /**
+     * Cards for the "recently added" listing (site's "Drama Movie" page,
+     * /recently-added-movie/). Markup differs from the country tabs: the
+     * title lives in <p class="title"> (or the anchor's title attribute)
+     * and the poster in <div class="cover"'s background-image.
+     */
+    private fun Document.toLatestCards(): List<SearchResponse> {
+        val seen = LinkedHashSet<String>()
+        val out = mutableListOf<SearchResponse>()
+        for (a in select("a[href*=/series/]")) {
+            val rawHref = a.attr("href")
+            val url = toAbsoluteUrl(rawHref) ?: continue
+            if (!url.contains("/series/") || url.contains("-episode-")) continue
+            if (!seen.add(url)) continue
+
+            val nm = a.selectFirst("p.title")?.text()?.trim()
+                ?: a.attr("title").trim().orEmpty()
+            if (nm.isBlank()) continue
+
+            val poster = a.selectFirst("div.cover")
+                ?.attr("style")
+                ?.let { bgImageRe.find(it)?.groupValues?.get(1) }
+                ?.let { toAbsoluteUrl(it) }
+                ?.takeIf { it.startsWith("http") }
+                ?: a.selectFirst("img")
+                    ?.let { it.attr("data-original").ifBlank { it.attr("src") } }
+                    ?.takeIf { !it.startsWith("data:") }
+                    ?.let { toAbsoluteUrl(it) }
+                    ?.takeIf { it.startsWith("http") }
+
+            out += newTvSeriesSearchResponse(nm, url, TvType.AsianDrama) {
+                posterUrl = poster
+            }
+        }
+        return out
+    }
+
     // ------------------------------------------------------------------
     // Main page
     // ------------------------------------------------------------------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val data = request.data
-        val path = if (data == "popular") "most-popular-drama" else countryPaths[data]
+        val latest = data == "latest"
+        val path = when {
+            data == "popular" -> "most-popular-drama"
+            latest -> "recently-added-movie"
+            else -> countryPaths[data]
+        }
         return try {
             val url = if (path == null) mainUrl
             else if (page <= 1) "${mainUrl}$path/"
             else "${mainUrl}$path/page/$page/"
             val doc = app.get(url, headers = mapOf("User-Agent" to UA)).document
-            newHomePageResponse(request, doc.toCards())
+            newHomePageResponse(request, if (latest) doc.toLatestCards() else doc.toCards())
         } catch (_: Throwable) {
             newHomePageResponse(request, emptyList())
         }

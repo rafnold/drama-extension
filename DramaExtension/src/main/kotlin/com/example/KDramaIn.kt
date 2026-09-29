@@ -18,6 +18,10 @@ import org.jsoup.nodes.Document
  * which lists sources per provider (m3u8 via relay.vidsync.pro or direct
  * CDN mp4/hls). The relay URLs are self-contained (they rewrite playlist
  * segments), so they are preferred for playback.
+ *
+ * The vidsync API is intermittent (timeouts / rate limits), so the last good
+ * curation per (type, id, season, episode) is cached in memory (12 h TTL,
+ * 256 entries) and served when a live call fails or returns zero sources.
  */
 class KDramaIn : MainAPI() {
 
@@ -76,6 +80,48 @@ class KDramaIn : MainAPI() {
             val url: String,
             val audioLabel: String?,
         )
+
+        /** One cached curation for a (type, id, season, episode) request. */
+        private data class CachedCuration(
+            val sources: List<VideoSource>,
+            val subtitles: List<Triple<Int, String, String>>,
+            val fetchedAt: Long,
+        )
+
+        private const val CURATION_CACHE_TTL_MS = 12L * 60L * 60L * 1000L // 12 h
+        private const val CURATION_CACHE_MAX = 256
+        private val curationCache = HashMap<String, CachedCuration>()
+        private val curationCacheLock = Any()
+
+        private fun readCuration(key: String): CachedCuration? =
+            synchronized(curationCacheLock) {
+                val e = curationCache[key]
+                if (e != null &&
+                    System.currentTimeMillis() - e.fetchedAt > CURATION_CACHE_TTL_MS
+                ) {
+                    curationCache.remove(key)
+                    null
+                } else {
+                    e
+                }
+            }
+
+        private fun cacheCuration(
+            key: String,
+            sources: List<VideoSource>,
+            subtitles: List<Triple<Int, String, String>>,
+        ) {
+            synchronized(curationCacheLock) {
+                curationCache[key] = CachedCuration(
+                    sources, subtitles, System.currentTimeMillis()
+                )
+                while (curationCache.size > CURATION_CACHE_MAX) {
+                    val oldest = curationCache.entries
+                        .minByOrNull { it.value.fetchedAt }?.key ?: break
+                    curationCache.remove(oldest)
+                }
+            }
+        }
 
         /** Language name / ISO code → BCP-47-ish 2-3 letter code. */
         private val langNames = mapOf(
@@ -289,14 +335,86 @@ class KDramaIn : MainAPI() {
             } else {
                 "https://vidsync.pro/embed/tv/$id/?season=${params["season"]}&episode=${params["episode"]}"
             }
+            val cacheKey = if (isMovie) "movie|$id" else "tv|$id|${season ?: 1}|${episode ?: 1}"
 
-            val text = app.get(VIDSYNC_API, params = params, referer = embedUrl).text
-
-            // The API is JSON-lines. provider-result lines carry a nested
-            // "sources" array whose objects contain nested objects
-            // ("headers", "audioTracks", ...), so parse with a real JSON parser.
+            // Try the live API. The vidsync API is intermittent (timeouts /
+            // rate limits), so on failure or a zero-source response fall back
+            // to the last good curation cached for this episode.
             val candidates = mutableListOf<VideoSource>()
             val subtitleCands = mutableListOf<Triple<Int, String, String>>() // trust, lang, url
+            try {
+                val text = app.get(VIDSYNC_API, params = params, referer = embedUrl).text
+                parseCuration(text, season, episode, candidates, subtitleCands)
+            } catch (_: Throwable) {
+                // network failure — fall through to the cache below
+            }
+
+            val effSources: List<VideoSource>
+            val effSubs: List<Triple<Int, String, String>>
+            if (candidates.isNotEmpty()) {
+                cacheCuration(cacheKey, candidates, subtitleCands)
+                effSources = candidates
+                effSubs = subtitleCands
+            } else {
+                val cached = readCuration(cacheKey) ?: return false
+                effSources = cached.sources
+                effSubs = cached.subtitles
+            }
+
+            val links = selectLinks(effSources)
+            for (c in links) {
+                val isHls = c.type.equals("hls", true) || c.url.contains(".m3u8")
+                val isDash = c.type.equals("mpd", true) || c.url.contains(".mpd")
+                val label = "${c.displayName} ${c.quality}" + (c.audioLabel?.let { " ($it)" } ?: "")
+                callback(
+                    newExtractorLink(
+                        name,
+                        label,
+                        c.url,
+                        when {
+                            isDash -> ExtractorLinkType.DASH
+                            isHls -> ExtractorLinkType.M3U8
+                            else -> ExtractorLinkType.VIDEO
+                        },
+                    ) {
+                        referer = embedUrl
+                        this.quality = c.qualityRank
+                        headers = mapOf("User-Agent" to UA)
+                    }
+                )
+            }
+
+            // Subtitles: dedupe by URL, then by language (most trusted wins).
+            val subSeenUrl = LinkedHashSet<String>()
+            val subSeenLang = LinkedHashSet<String>()
+            val subs = effSubs
+                .sortedWith(compareByDescending<Triple<Int, String, String>> { it.first })
+            for ((trust, lang, url) in subs) {
+                if (!subSeenUrl.add(url)) continue
+                val key = if (lang.isBlank()) url else lang.lowercase()
+                if (lang.isNotBlank() && !subSeenLang.add(key)) continue
+                subtitleCallback(newSubtitleFile(lang, url))
+            }
+            links.isNotEmpty()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Parses the vidsync JSON-lines response. provider-result lines carry a
+     * nested "sources" array whose objects contain nested objects ("headers",
+     * "audioTracks", ...), so each line is parsed with a real JSON parser.
+     * Sources that resolve to a different season/episode are skipped
+     * (vidsync sometimes maps an episode to a wrong file).
+     */
+    private fun parseCuration(
+        text: String,
+        season: Int?,
+        episode: Int?,
+        outCandidates: MutableList<VideoSource>,
+        outSubs: MutableList<Triple<Int, String, String>>,
+    ) {
             for (line in text.lines()) {
                 if (!line.contains("provider-result")) continue
                 val obj = try {
@@ -346,7 +464,7 @@ class KDramaIn : MainAPI() {
                     }
                     val displayName = s.optJSONObject("provider")?.optString("name")
                         ?.ifBlank { null } ?: provider.replaceFirstChar { it.uppercase() }
-                    candidates += VideoSource(
+                    outCandidates += VideoSource(
                         provider = provider,
                         trust = trust,
                         displayName = displayName,
@@ -358,71 +476,40 @@ class KDramaIn : MainAPI() {
                     )
                     // Per-source subtitles (e.g. kisskh)
                     val subs = s.optJSONArray("subtitles") ?: JSONArray()
-                    collectSubs(subs, trust, subtitleCands)
+                    collectSubs(subs, trust, outSubs)
                 }
                 // Provider-level subtitles (e.g. castle, vidsrc)
-                collectSubs(obj.optJSONArray("subtitles") ?: JSONArray(), trust, subtitleCands)
+                collectSubs(obj.optJSONArray("subtitles") ?: JSONArray(), trust, outSubs)
             }
+    }
 
-            // Prefer reliable providers; fall back to everything if they are empty.
-            val reliable = candidates.filter { it.trust > 0 }
-            val pickedAll = if (reliable.isNotEmpty()) reliable else candidates
-            // vidsrc-rescrape URLs are relay-wrapped and more robust than the
-            // direct vidapi.cloud ones: drop the direct twin when both exist.
-            val picked = pickedAll.filterNot { c ->
-                c.provider == "vidsrc" && pickedAll.any {
-                    it.provider == "vidsrc-rescrape" &&
-                        it.qualityRank == c.qualityRank && it.audioLabel == c.audioLabel
-                }
+    /**
+     * Picks the extractor links from the parsed candidates: reliable
+     * providers first (everything as a last resort), dedupe per
+     * (provider, audio, quality) keeping the first occurrence, then sort
+     * (original audio first, then trust, then quality). vidsrc-rescrape
+     * URLs are relay-wrapped and more robust than the direct vidapi.cloud
+     * ones, so the direct twin is dropped when both exist.
+     */
+    private fun selectLinks(candidates: List<VideoSource>): List<VideoSource> {
+        val reliable = candidates.filter { it.trust > 0 }
+        val pickedAll = if (reliable.isNotEmpty()) reliable else candidates
+        val picked = pickedAll.filterNot { c ->
+            c.provider == "vidsrc" && pickedAll.any {
+                it.provider == "vidsrc-rescrape" &&
+                    it.qualityRank == c.qualityRank && it.audioLabel == c.audioLabel
             }
-            // Keep the first occurrence per (provider, audio, quality).
-            val deduped = linkedMapOf<String, VideoSource>()
-            for (c in picked) {
-                val key = "${c.provider}|${c.audioLabel ?: "orig"}|${c.quality}"
-                if (!deduped.containsKey(key)) deduped[key] = c
-            }
-            val links = deduped.values
-                .sortedWith(compareByDescending<VideoSource> { it.audioLabel == null } // original audio first
-                    .thenByDescending { it.trust }
-                    .thenByDescending { it.qualityRank }
-                    .thenBy { it.quality.lowercase() })
-            for (c in links) {
-                val isHls = c.type.equals("hls", true) || c.url.contains(".m3u8")
-                val isDash = c.type.equals("mpd", true) || c.url.contains(".mpd")
-                val label = "${c.displayName} ${c.quality}" + (c.audioLabel?.let { " ($it)" } ?: "")
-                callback(
-                    newExtractorLink(
-                        name,
-                        label,
-                        c.url,
-                        when {
-                            isDash -> ExtractorLinkType.DASH
-                            isHls -> ExtractorLinkType.M3U8
-                            else -> ExtractorLinkType.VIDEO
-                        },
-                    ) {
-                        referer = embedUrl
-                        this.quality = c.qualityRank
-                        headers = mapOf("User-Agent" to UA)
-                    }
-                )
-            }
-
-            // Subtitles: dedupe by URL, then by language (most trusted wins).
-            val subSeenUrl = LinkedHashSet<String>()
-            val subSeenLang = LinkedHashSet<String>()
-            val subs = subtitleCands
-                .sortedWith(compareByDescending<Triple<Int, String, String>> { it.first })
-            for ((trust, lang, url) in subs) {
-                if (!subSeenUrl.add(url)) continue
-                val key = if (lang.isBlank()) url else lang.lowercase()
-                if (lang.isNotBlank() && !subSeenLang.add(key)) continue
-                subtitleCallback(newSubtitleFile(lang, url))
-            }
-            links.isNotEmpty()
-        } catch (_: Throwable) {
-            false
         }
+        val deduped = linkedMapOf<String, VideoSource>()
+        for (c in picked) {
+            val key = "${c.provider}|${c.audioLabel ?: "orig"}|${c.quality}"
+            if (!deduped.containsKey(key)) deduped[key] = c
+        }
+        return deduped.values
+            .sortedWith(compareByDescending<VideoSource> { it.audioLabel == null } // original audio first
+                .thenByDescending { it.trust }
+                .thenByDescending { it.qualityRank }
+                .thenBy { it.quality.lowercase() })
     }
 
     private fun collectSubs(subs: JSONArray, trust: Int, out: MutableList<Triple<Int, String, String>>) {
