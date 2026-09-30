@@ -3,16 +3,7 @@
 Read `AI_RULES.md` first — it contains the binding working agreements (complete code only,
 live-verify before coding, fallback discipline, verification gate before commit).
 
-## v8 IN PROGRESS — expanded categories (2026-10-01, approved by user)
-
-KissAsian +Wuxia/Fantasy/Historical/Romance/Action genre tabs (code done),
-KissKH +Fantasy/Historical/Romance/Action/Sci-Fi/Thriller (code done),
-k-drama.in +Ranking/Watchlist + TMDB rating badge + "N EP" in name (TMDB key
-from user .env; card id = tmdb id, verified), DramaNice +K/C/J/Thai country
-tabs (single-page /list-all-drama/ country-XX class filter: 19+8=KR, 17+48=CN,
-36+51=JP, 25=TH; text-only cards). All code done, compiles clean, version 8, harness gate GREEN (all new tabs
-verified live; TMDB EP suffix + rating badge working; 2 known non-issues
-documented). Remaining: build, verify artifact, docs, commit, push, CI.
+## v8 — expanded categories (RELEASED 2026-10-01, v8 live, commit 06961a2)
 
 ## Pending: candidate feature work (investigated 2026-10-01, awaiting user go-ahead)
 
