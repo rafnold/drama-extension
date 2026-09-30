@@ -12,6 +12,7 @@ that hide their streams behind encrypted/JS player chains.
 | `KDrama.in` | https://k-drama.in    | K/C/J drama + movies, indexed by TMDB id. Streams are resolved through the `vidsync.pro` extraction session API (`/api/extraction/session?type=tv\|movie&id=...&season=..&episode=..`), which returns per-provider sources (m3u8 relay + direct mp4/m3u8). |
 | `KissAsian` | https://wwv21.kissasian.com.lv/ | K/C/J/TH/HK/TW/PH drama + movies (WordPress site, 477-series catalog). 9 tabs (Popular + 7 country archives + Latest, paginated). Search via WordPress REST `series?search=` (the on-site `?s=` search is client-side only). The player embed page is deliberately empty — the extension calls the runtime endpoint `player_source.php?episode=N` on the embed host to get the final M3U8 list (dramav2 + drama3 CDNs), with legacy in-page regexes as fallback. Subtitles come from the player page's Referer-gated `subApi` (signed `.srt` URLs). |
 | `Dramahood` | https://dramahood.mom | K/C/J drama + KShows (WordPress site). 4 tabs (Drama, KShow + two "latest releases" archives, paginated). Server-rendered catalog and `?s=` search. Episodes embed one of three player hosts, each with its own decryption chain (AES-256-CBC hex-key, AES-256-CBC fixed key, or XOR+base64 JSON) — all resolved to the final m3u8. No subtitle files are shipped by the site. |
+| `KissKH` | https://kisskh.or.at | K-drama + movies (WordPress "dramastream" theme). 3 tabs (All, Dramas, Movies, paginated) + `?s=` search. Series episodes resolve through a two-hop chain: `data-matrix-vault` (double base64 JSON) → `kisskh.megaplay.su` embed → `#player-payload` JSON → M3U8 + `.srt` subtitle tracks (Referer-gated). Movies resolve from the same vault's per-server iframes: `moviesapi.to` (vidora API, needs `x-player-key` + Referer/Origin) or `vidmoly.biz` (m3u8 embedded in the page). |
 
 All providers support home page browsing, search, TV series and movie loading.
 
@@ -68,7 +69,7 @@ The `.cs3` file is produced under `DramaExtension/build/`, the plugin list at
 In the app: **Settings → Extensions → Add Repository**, then paste the
 `repo.json` URL from Option A, e.g.
 `https://raw.githubusercontent.com/<user>/<repo>/builds/repo.json`.
-The `DramaNice` / `KDrama.in` / `KissAsian` / `Dramahood` providers appear in the list - install them.
+The `DramaNice` / `KDrama.in` / `KissAsian` / `Dramahood` / `KissKH` providers appear in the list - install them.
 
 Note: the app expects a `Repository` JSON manifest (`repo.json` with
 `pluginLists`); pasting the bare `plugins.json` or a raw `.cs3` URL does not
@@ -166,6 +167,23 @@ for episodes not yet uploaded — handled gracefully):
 The two "latest releases" tabs list individual episode posts
 (`/<slug>-episode-N/`); the card parser normalizes them back to the series
 page and de-duplicates, so each series appears once (latest episode first).
+
+### KissKH chain
+
+1. Episode "watch" page carries `li.linkserver`-style `data-matrix-vault` (base64 of a
+   JSON array of `{name, vault}`; each `vault` is base64 of an HTML snippet whose
+   `<iframe src>` is the server URL).
+2. **Series** servers point at `kisskh.megaplay.su`: the embed page holds
+   `script#player-payload` with JSON `{source: <m3u8>, tracks: [{file: <.srt>, label}]}`
+   — fetched with `Referer = https://kisskh.megaplay.su/`. M3U8 + subs are emitted with
+   that referer (required).
+3. **Movie** servers point at:
+   - `moviesapi.to/movie/<tmdbId>` — the embed's theme URL is unused; the extension calls
+     `https://moviesapi.to/api/vidora/v1/movie/<tmdbId>` with `x-player-key` +
+     `Referer/Origin = moviesapi.to` → `{result, sources: [{url: <m3u8>, tracks}]}`.
+   - `vidmoly.biz/embed-*` — the m3u8 is embedded directly in the page HTML (first
+     `https?://…m3u8` match), referer = the embed page.
+   - videasy (origin down) and vidlink (wasm-encrypted) entries are skipped.
 
 ## Notes
 

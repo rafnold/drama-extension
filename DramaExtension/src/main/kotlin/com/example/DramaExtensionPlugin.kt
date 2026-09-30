@@ -12,5 +12,6 @@ class DramaExtensionPlugin : Plugin() {
         registerMainAPI(KDramaIn())
         registerMainAPI(KissAsian())
         registerMainAPI(Dramahood())
+        registerMainAPI(KissKH())
     }
 }

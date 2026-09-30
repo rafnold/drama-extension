@@ -3,10 +3,13 @@
 Read `AI_RULES.md` first — it contains the binding working agreements (complete code only,
 live-verify before coding, fallback discipline, verification gate before commit).
 
-## Current status: **v6 RELEASED + live-verified** (2026-09-29) — nothing pending
+## Current status: **v7 GATE PASSED** (2026-09-30) — KissKH code complete, harness green, v7 artifacts built; commit/push in flight
 
-All three pending items are implemented and live-verified (harness run 2026-09-29, exit 0,
-no failures across all 4 providers):
+v7 adds the **KissKH** provider (kisskh.or.at). The code is complete and
+live-verified, but is still **uncommitted** — see "v7 work in flight" below.
+v6 (2026-09-29) remains the released version; its three pending items were
+implemented and live-verified (harness run 2026-09-29, exit 0, no failures
+across all 4 providers):
 
 1. **KissAsian** — pagination beyond page 2 verified live (tw p3 → clean 404 → 0 cards;
    kr p3 → 36 real cards); new **Latest** tab from `/recently-added-movie/` (27 cards,
@@ -61,39 +64,69 @@ no failures across all 4 providers):
   m3u8 fetch = SSL handshake failure on `hls.aniwatch.al` — incomplete Cloudflare
   Origin CA chain, accepted by design); empty player episode → ok=false, 0 links.
 
-## Pending action — new GitHub PAT + manifest cleanup (user does, ~2 min)
+## v7 release (2026-09-30) — gate 1-3 done; commit/push remaining
 
-The fine-grained PAT embedded in the local git remote (`github_pat_…`) **expired /
-was revoked on 2026-09-29 mid-session** (it worked for the make-public API call,
-then started returning 401 "Bad credentials"). Consequences:
+A previous session implemented v7 = new **KissKH** provider (kisskh.or.at). State on disk:
 
-- **No local `git push` works** (dead token in the remote URL) — until replaced.
-- The public `builds` branch still carries the **dead token string** embedded in the
-  `repo.json`/`plugins.json` URLs (from the private-repo auth workaround). Harmless:
-  GitHub serves the public files regardless of the stale credentials — full chain
-  verified 200 (repo.json → plugins.json → .cs3), `.cs3` = v6 build (85384 bytes,
-  sha256 `8704ca30f71872597042059c26ab675337be1d9d11d2dadbafb6e32e3a034433`).
-  Just cosmetic until cleaned.
-- The app install link already works with zero auth:
-  **`https://raw.githubusercontent.com/rafnold/drama-extension/builds/repo.json`**
+- **Complete code** (verified per AI_RULES §1): `DramaExtension/src/main/kotlin/com/example/KissKH.kt`
+  (401 lines, braces balanced, `grep -c REDACTED` = 0). Chains: series → `data-matrix-vault`
+  (double-base64 JSON) → `kisskh.megaplay.su` embed → `#player-payload` JSON → M3U8 + `.srt`
+  tracks (Referer-gated); movies → `moviesapi.to` vidora API (x-player-key + Referer/Origin)
+  and `vidmoly.biz` (m3u8 in page HTML); videasy (origin down) / vidlink (wasm) skipped.
+  Registered in `DramaExtensionPlugin.kt`; `DramaExtension/build.gradle.kts` version 7
+  + description updated. Release compile passed (kotlin daemon "result 0"):
+  `DramaExtension/build/outputs/aar/DramaExtension-release.aar` (182397 B, 2026-09-30 10:51)
+  + `KissKH*.class`.
+- **Harness GREEN** (run 2026-09-30 09:03, output saved at `/tmp/harness-out.txt`; harness
+  synced at `/workspace/tmp-artifacts/harness-proj/` incl. KissKH extra checks + verbatim
+  KissKH.kt/Dramahood.kt copies): all 5 providers pass — KissKH: 3 tabs × 20 cards w/ posters,
+  p2 overlap 0, search OK, megaplay chain PASS (1 M3U8 + 6 subs), movie vidora PASS
+  (1 M3U8 + 1 sub), movie vidmoly PASS (1 M3U8); DramaNice/KDramaIn/KissAsian/Dramahood
+  regressions green.
+- **Live RE artifacts**: ~70 `kk-*` captures in `/workspace/tmp-artifacts/` (pages, megaplay
+  payload, valid `kk-live-ep.m3u8`+`.srt`, moviesapi JS/JSON, vidmoly/vidlink/videasy, wasm).
+- **Build DONE** (2026-09-30 15:05): `./gradlew make makePluginsJson` →
+  `DramaExtension/build/DramaExtension.cs3` **99643 B**, sha256 `11b9ed27d77c4daf645d09c75b4350a4f09549dfc1f1404dfbb8d1ad3dbb1f5b`;
+  root `build/plugins.json` version **7**, fileSize/fileHash match the .cs3, description lists
+  all 5 providers; dex contains all 5 provider classes (KissKH refs verified via python zipfile).
+- **Docs DONE**: README.md has the KissKH provider row + "KissKH chain" section + install list;
+  this file + `drama-extension-state.md` updated in micro-increments throughout.
 
-**User step — create a replacement PAT:**
-github.com → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** →
-**Generate new token** (direct URL: `https://github.com/settings/personal-access-tokens/new`):
-1. **Note**: `drama-extension agent` (any label).
-2. **Expiration**: **1 year** or No expiration (a short expiration repeats this exact failure).
-3. **Repository access**: **Only selected repositories** → `rafnold/drama-extension`.
-4. **Permissions**: **Contents: Read and write** — nothing else needed.
-5. Copy the `github_pat_…` token and paste it to the agent (it's shown only once).
+**Release gate status (AI_RULES §7 order):**
+1. **DONE** — harness re-gate. First run 2026-09-30 ~14:40 (`/tmp/harness-out-v7.txt`, exit 0)
+   had 3 transient chain FAILs, all diagnosed site-side: (a) KissKH megaplay — manually
+   re-verified end-to-end (watch→vault→iframe→payload→M3U8 all 200); (b) KissKH vidora m3u8
+   fetch timeout — API + m3u8 since 200 in <0.3 s; (c) Dramahood dramavideo — player decrypts
+   fine but site returns `sources=[]` for the test episodes (same URL PASSED 09:03 and at v6
+   release; the "empty player" state the code handles; player.js carries a mid-rotation
+   comment "UPDATED HOST → player.5274274.xyz", connection-refused from here).
+   **Re-run ~15:00 (`/tmp/harness-out-v7b.txt`, exit 0): GATE PASS** — KissKH megaplay/vidora/
+   vidmoly all PASS; regressions green (DramaNice ok=true, KDrama.in ok=true + 30 subs,
+   KissAsian 2 links + 1 sub, Dramahood vidbasic/embedload PASS).
+2. **DONE** — `make makePluginsJson` → v7 artifacts verified (see Build DONE bullet).
+3. **DONE** — docs updated (README + both handoff files).
+4. **NEXT** — commit `v7: add KissKH provider (kisskh.or.at) ...`.
+5. **NEXT** — `git push origin main` (remote works — see PAT section) → CI publishes v7 to
+   `builds` → verify live `builds/plugins.json` version 7 + .cs3 sha256 == `11b9ed27…`.
 
-**Agent then does (verification gate for this step):**
-1. `git remote set-url origin https://x-access-token:<new>@github.com/rafnold/drama-extension.git`
-2. Push any local commits that piled up on `main` meanwhile (this TODO update is one of them).
-3. `git push -f origin 306319d:builds` — `306319d` is the clean CI-generated manifests
-   (still in the local object store); this removes the dead token strings from the
-   public branch. (A future v7 push to main regenerates clean manifests via CI anyway.)
-4. Verify: `curl` the public `repo.json` + `plugins.json` → **no** `x-access-token` /
-   `github_pat` substrings; chain fetch 200s; `.cs3` sha256 == `8704ca30…` as above.
+## GitHub PAT + push access — RESOLVED (verified 2026-09-30)
+
+The fine-grained PAT in the local remote had expired/revoked 2026-09-29 mid-session
+(401 "Bad credentials"). A **new fine-grained PAT** was provided by the user in the
+`$GITHUB_TOKEN` env var (93 chars, `github_pat_1…` prefix). Git tests (2026-09-30):
+
+1. `git ls-remote https://x-access-token:$GITHUB_TOKEN@github.com/rafnold/drama-extension.git`
+   → exit 0: `main` = `e208f98`, `builds` = `306319d`.
+2. GitHub API with the token → user `rafnold`; repo `rafnold/drama-extension` public,
+   default branch `main`.
+3. `git remote set-url origin` → done (old dead token replaced with the new PAT from
+   `$GITHUB_TOKEN` in the remote URL).
+4. `git push --dry-run origin main` → "Everything up-to-date", exit 0 (push auth OK).
+5. Public `builds` branch is already at clean `306319d` (pushed earlier): `repo.json` +
+   `plugins.json` contain **no** `x-access-token`/`github_pat` substrings, chain fetch 200s,
+   live `.cs3` = 85384 B, sha256 `8704ca30…` (v6).
+
+App install link (zero auth): **`https://raw.githubusercontent.com/rafnold/drama-extension/builds/repo.json`**
 
 Optional: delete the old dead token at `github.com/settings/tokens`.
 
