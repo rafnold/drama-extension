@@ -3,7 +3,31 @@
 Read `AI_RULES.md` first — it contains the binding working agreements (complete code only,
 live-verify before coding, fallback discipline, verification gate before commit).
 
-## Current status: **v7 GATE PASSED** (2026-09-30) — KissKH code complete, harness green, v7 artifacts built; commit/push in flight
+## v8 IN PROGRESS — expanded categories (2026-10-01, approved by user)
+
+KissAsian +Wuxia/Fantasy/Historical/Romance/Action genre tabs (code done),
+KissKH +Fantasy/Historical/Romance/Action/Sci-Fi/Thriller (code done),
+k-drama.in +Ranking/Watchlist + TMDB rating badge + "N EP" in name (TMDB key
+from user .env; card id = tmdb id, verified), DramaNice +K/C/J/Thai country
+tabs (single-page /list-all-drama/ country-XX class filter: 19+8=KR, 17+48=CN,
+36+51=JP, 25=TH; text-only cards). All code done, compiles clean, version 8, harness gate GREEN (all new tabs
+verified live; TMDB EP suffix + rating badge working; 2 known non-issues
+documented). Remaining: build, verify artifact, docs, commit, push, CI.
+
+## Pending: candidate feature work (investigated 2026-10-01, awaiting user go-ahead)
+
+User asked for more categories (wuxia/xianxia/C-drama/live-action/K-J-C/movies/
+animation) + episode numbers on covers. All five sites probed live; feasibility
+matrix + app badge-model findings recorded in `drama-extension-state.md`
+("Candidate features — investigated 2026-10-01"). Short version: KissAsian genre
+tabs (31 incl. wuxia) + movies feed, KissKH genre tabs (14), k-drama.in
+ranking/watchlist tabs + TMDB rating badge, DramaNice country tabs (single-page
+catalog w/ country classes) are all low-effort and reuse existing parsers.
+Xianxia-dedicated / animation / live-action tabs are not possible on the current
+five sites. Cover episode counts: no native badge field in the current app build —
+append to `name` and/or TMDB enrichment for k-drama.in only.
+
+## Current status: **v7 LIVE** (2026-09-30) — KissKH provider released (commit `215ea7c` on `main`, builds ref `e29b250`); live .cs3 sha256 verified identical to local build
 
 v7 adds the **KissKH** provider (kisskh.or.at). The code is complete and
 live-verified, but is still **uncommitted** — see "v7 work in flight" below.
@@ -64,7 +88,7 @@ across all 4 providers):
   m3u8 fetch = SSL handshake failure on `hls.aniwatch.al` — incomplete Cloudflare
   Origin CA chain, accepted by design); empty player episode → ok=false, 0 links.
 
-## v7 release (2026-09-30) — gate 1-3 done; commit/push remaining
+## v7 release (2026-09-30) — COMPLETE (all gates passed, live on `builds`)
 
 A previous session implemented v7 = new **KissKH** provider (kisskh.or.at). State on disk:
 
@@ -105,9 +129,13 @@ A previous session implemented v7 = new **KissKH** provider (kisskh.or.at). Stat
    KissAsian 2 links + 1 sub, Dramahood vidbasic/embedload PASS).
 2. **DONE** — `make makePluginsJson` → v7 artifacts verified (see Build DONE bullet).
 3. **DONE** — docs updated (README + both handoff files).
-4. **NEXT** — commit `v7: add KissKH provider (kisskh.or.at) ...`.
-5. **NEXT** — `git push origin main` (remote works — see PAT section) → CI publishes v7 to
-   `builds` → verify live `builds/plugins.json` version 7 + .cs3 sha256 == `11b9ed27…`.
+4. **DONE** — commit `215ea7c` `v7: add KissKH provider (kisskh.or.at); matrix-vault →
+   megaplay series chain (.srt subs) + moviesapi/vidmoly movie chains` (5 files, +493/−40).
+5. **DONE** — pushed to `main` (e208f98..215ea7c); CI published v7 to `builds` (ref
+   `306319d` → `e29b250`). Verified live (2026-09-30 ~15:25): `builds/plugins.json` version
+   **7**, `repo.json` 200, live `DramaExtension.cs3` 99643 B sha256
+   `11b9ed27d77c4daf645d09c75b4350a4f09549dfc1f1404dfbb8d1ad3dbb1f5b` — byte-identical to the
+   local build. v7 release complete.
 
 ## GitHub PAT + push access — RESOLVED (verified 2026-09-30)
 

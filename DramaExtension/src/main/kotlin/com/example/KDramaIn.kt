@@ -8,6 +8,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 import org.jsoup.nodes.Document
 
+
 /**
  * KDrama.in (https://k-drama.in) - K/C/J dramas and movies.
  *
@@ -37,6 +38,8 @@ class KDramaIn : MainAPI() {
         "jdrama" to "J-Dramas",
         "movies" to "Movies",
         "top_rated" to "Top Rated",
+        "ranking" to "Ranking",
+        "watchlist" to "Watchlist",
     )
 
     companion object {
@@ -47,6 +50,21 @@ class KDramaIn : MainAPI() {
         private val tvEpRe = Regex("id=(\\d+)&(amp;)?season=(\\d+)&(amp;)?episode=(\\d+)")
         private val movieRe = Regex("id=(\\d+)&(amp;)?type=movie")
         private val idRe = Regex("id=(\\d+)")
+
+        // Catalog card hrefs carry the TMDB id (verified: id=2734 ->
+        // "Law & Order: SVU", the detail page embeds 'tmdbId: 2734').
+        private val cardTmdbRe = Regex("id=(\\d+)&(amp;)?type=(tv|movie)")
+
+        /** TMDB API v4 token, read from the environment so the expiring
+         *  JWT is not baked into the shipped binary. When unset, catalog
+         *  cards simply don't get the episode-count suffix. */
+        private val TMDB_KEY: String? = System.getenv("TMDB_TOKEN")?.takeIf { it.isNotBlank() }
+        private const val TMDB_API = "https://api.tmdb.org/3"
+        private const val TMDB_EP_TTL_MS = 7L * 24 * 3600 * 1000
+        private const val TMDB_FAIL_TTL_MS = 3600_000L
+        private const val TMDB_EP_CACHE_MAX = 1024
+        private val tmdbEpCache = HashMap<String, Pair<Int, Long>>()
+        private val tmdbLock = Any()
 
         /** Reliability ranking of vidsync backend providers. 0 = junky
          *  sources (gambling-site streams, wrong-language dubs); only used
@@ -199,24 +217,103 @@ class KDramaIn : MainAPI() {
         }
     }
 
-    private fun Document.toCards(): List<SearchResponse> {
+    /** TMDB ids of the TV cards on this page (for episode enrichment). */
+    private fun Document.toCardTmdbIds(): List<String> {
+        val out = mutableListOf<String>()
+        for (a in select("a[href*=detail.php]")) {
+            val m = cardTmdbRe.find(a.attr("href")) ?: continue
+            if (m.groupValues[3] == "tv") out.add(m.groupValues[1])
+        }
+        return out
+    }
+
+    /**
+     * Builds catalog cards. [episodesByTmdbId] optionally appends
+     * " (N EP)" to TV card names (episode totals come from TMDB; the
+     * site's cards show a star rating + country flag but no counts).
+     */
+    private fun Document.toCards(episodesByTmdbId: Map<String, Int> = emptyMap()): List<SearchResponse> {
         val seen = LinkedHashSet<String>()
         val out = mutableListOf<SearchResponse>()
         for (a in select("a[href*=detail.php]")) {
             val url = toAbsoluteUrl(a.attr("href")) ?: continue
             if (!seen.add(url)) continue
-            val nm = a.selectFirst("h3")?.text()?.trim() ?: continue
-            if (nm.isBlank()) continue
+            val nm0 = a.selectFirst("h3")?.text()?.trim() ?: continue
+            if (nm0.isBlank()) continue
             val isMovie = url.contains("type=movie")
             val poster = a.selectFirst("img")?.attr("src")?.takeIf { it.startsWith("http") }
+
+            // Card rating badge: <i class="fas fa-star"></i> 5.4 in the
+            // top-left corner div -> app rating badge ("Show rating" setting).
+            // One decimal on the site ("5.4" / 10) -> [0,100]:
+            // Score.from(54, 100) renders as "5.4" in the app.
+            val score = a.selectFirst("i.fa-star")?.parent()?.text()
+                ?.trim()?.toFloatOrNull()
+                ?.takeIf { it in 0.1f..10f }
+                ?.let { Score.from(Math.round(it * 10f).toInt().coerceIn(0, 100), 100) }
+
+            val episodes = if (isMovie) 0 else {
+                cardTmdbRe.find(url)?.groupValues?.get(1)?.let { episodesByTmdbId[it] } ?: 0
+            }
+            val nm = if (episodes > 0) "$nm0 ($episodes EP)" else nm0
+
             out += if (isMovie) {
                 newMovieSearchResponse(nm, url, TvType.Movie) {
                     posterUrl = poster
+                    this.score = score
                 }
             } else {
                 newTvSeriesSearchResponse(nm, url, TvType.AsianDrama) {
                     posterUrl = poster
+                    this.score = score
                 }
+            }
+        }
+        return out
+    }
+
+    /** One TMDB call per id; 0 = unknown/failed (card stays un-suffixed). */
+    private suspend fun tmdbEpisodeCount(id: String): Int {
+        val key = TMDB_KEY ?: return 0
+        return try {
+            val body = app.get(
+                "$TMDB_API/tv/$id",
+                headers = mapOf("Authorization" to "Bearer $key"),
+            ).text
+            JSONObject(body).optInt("number_of_episodes", 0)
+        } catch (_: Throwable) {
+            0
+        }
+    }
+
+    /**
+     * Episode counts for [ids]. 7-day in-memory cache (1 h for failures,
+     * so a flaky TMDB recovers quickly), 20 s hard budget per page — when
+     * the budget runs out, remaining cards keep their plain names.
+     * Sequential: the plugin compile classpath has no kotlinx-coroutines,
+     * so there is no cheap fan-out; ~20 calls x ~300 ms is acceptable for
+     * a home refresh.
+     */
+    private suspend fun fetchTmdbEpisodeCounts(ids: List<String>): Map<String, Int> {
+        val out = HashMap<String, Int>()
+        if (ids.isEmpty() || TMDB_KEY == null) return out
+        val deadline = System.currentTimeMillis() + 20_000
+        for (id in ids.distinct()) {
+            if (System.currentTimeMillis() > deadline) break
+            val now = System.currentTimeMillis()
+            val c = synchronized(tmdbLock) { tmdbEpCache[id] }
+            if (c != null) {
+                val ttl = if (c.first > 0) TMDB_EP_TTL_MS else TMDB_FAIL_TTL_MS
+                if (now - c.second <= ttl) {
+                    out[id] = c.first
+                    continue
+                }
+            }
+            val n = tmdbEpisodeCount(id)
+            out[id] = n
+            synchronized(tmdbLock) {
+                if (tmdbEpCache.size > TMDB_EP_CACHE_MAX) tmdbEpCache.clear()
+                tmdbEpCache[id] = n to now
             }
         }
         return out
@@ -233,7 +330,8 @@ class KDramaIn : MainAPI() {
         return try {
             val url = mainUrl.removeSuffix("/") + "/dramas.php?type=${request.data}&page=${page.coerceAtLeast(1)}"
             val doc = app.get(url).document
-            newHomePageResponse(request, doc.toCards())
+            val counts = fetchTmdbEpisodeCounts(doc.toCardTmdbIds())
+            newHomePageResponse(request, doc.toCards(counts))
         } catch (_: Throwable) {
             newHomePageResponse(request, emptyList())
         }
@@ -245,7 +343,8 @@ class KDramaIn : MainAPI() {
                 mainUrl + "dramas.php",
                 params = mapOf("type" to "all", "q" to query),
             ).document
-            doc.toCards()
+            val counts = fetchTmdbEpisodeCounts(doc.toCardTmdbIds())
+            doc.toCards(counts)
         } catch (_: Throwable) {
             emptyList()
         }

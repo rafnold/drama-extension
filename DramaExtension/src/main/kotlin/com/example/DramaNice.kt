@@ -32,9 +32,26 @@ class DramaNice : MainAPI() {
     override val mainPage = mainPageOf(
         "popular" to "Popular",
         "all" to "All Dramas",
+        "kdrama" to "K-Dramas",
+        "cdrama" to "C-Dramas",
+        "jdrama" to "J-Dramas",
+        "thai" to "Thai",
     )
 
     companion object {
+        // The A-Z /list-all-drama/ index renders the whole catalog (159
+        // titles, verified 2026-10-01) with per-item country-XX classes from
+        // the sidebar filter (labels: 19=Korean, 8=South Korea, 17=Chinese,
+        // 48=China, 36=Japanese, 51=Japan, 25=Thailand). Both spelling
+        // variants are merged per tab. Text-only cards (no posters on this
+        // page) — the image-card listing has no country classes.
+        private val countryClasses = mapOf(
+            "kdrama" to setOf("country-19", "country-8"),
+            "cdrama" to setOf("country-17", "country-48"),
+            "jdrama" to setOf("country-36", "country-51"),
+            "thai" to setOf("country-25"),
+        )
+
         private const val UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -85,6 +102,25 @@ class DramaNice : MainAPI() {
                 ?.takeIf { it.startsWith("http") }
             out += newTvSeriesSearchResponse(nm, url, TvType.AsianDrama) {
                 posterUrl = poster
+            }
+        }
+        return out
+    }
+
+    /** Text-list cards for the A-Z index filtered by country class. */
+    private fun Document.toCountryCards(classes: Set<String>): List<SearchResponse> {
+        val seen = LinkedHashSet<String>()
+        val out = mutableListOf<SearchResponse>()
+        for (li in select("li")) {
+            val liClasses = li.classNames()
+            if (classes.none { it in liClasses }) continue
+            val a = li.selectFirst("a[href*=/drama/]") ?: continue
+            val url = toAbsoluteUrl(a.attr("href")) ?: continue
+            if (!seen.add(url)) continue
+            val nm = a.attr("title").trim().ifBlank { a.text().trim() }
+            if (nm.isBlank()) continue
+            out += newTvSeriesSearchResponse(nm, url, TvType.AsianDrama) {
+                posterUrl = null
             }
         }
         return out
@@ -198,16 +234,26 @@ class DramaNice : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         return try {
-            // "All Dramas" uses the site's paginated listing (image cards);
-            // the A-Z /list-all-drama/ index is text-only with no posters.
+            // Country tabs filter the single-page A-Z /list-all-drama/
+            // index (159 titles, per-item country-XX classes) — no extra
+            // requests for pagination. "All Dramas" uses the site's
+            // paginated image-card listing.
             val base = mainUrl.removeSuffix("/")
-            val url = if (request.data == "all") {
-                if (page > 1) "$base/most-popular-drama/page/$page/" else "$base/most-popular-drama/"
-            } else {
-                mainUrl
+            val cards = when {
+                // Country tabs: single-page A-Z index filtered by the
+                // per-item country-XX classes (no pagination requests).
+                request.data in countryClasses ->
+                    app.get("$base/list-all-drama/").document
+                        .toCountryCards(countryClasses.getValue(request.data))
+                // "All Dramas": site's paginated image-card listing.
+                request.data == "all" -> {
+                    val url = if (page > 1) "$base/most-popular-drama/page/$page/"
+                    else "$base/most-popular-drama/"
+                    app.get(url).document.toDramaCards()
+                }
+                else -> app.get(mainUrl).document.toDramaCards()
             }
-            val doc = app.get(url).document
-            newHomePageResponse(request, doc.toDramaCards())
+            newHomePageResponse(request, cards)
         } catch (_: Throwable) {
             newHomePageResponse(request, emptyList())
         }

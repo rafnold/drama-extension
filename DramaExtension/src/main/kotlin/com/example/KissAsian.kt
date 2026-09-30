@@ -52,6 +52,11 @@ class KissAsian : MainAPI() {
         "hk" to "Hong Kong",
         "tw" to "Taiwan",
         "ph" to "Philippines",
+        "wuxia" to "Wuxia",
+        "fantasy" to "Fantasy",
+        "historical" to "Historical",
+        "romance" to "Romance",
+        "action" to "Action",
         "latest" to "Latest",
     )
 
@@ -80,6 +85,19 @@ class KissAsian : MainAPI() {
             "hk" to "country/hong-kong",
             "tw" to "country/taiwan",
             "ph" to "country/philippines",
+        )
+
+        // Server-side genre catalogs (/genres/<slug>/, paginated /page/N/).
+        // Same <li><a class="img"><h3> grid as the country tabs, so the
+        // standard toCards() parser applies. Verified 2026-10-01: the wuxia
+        // archive currently lists 2 series (the REST term count is higher,
+        // but the archive page is the live truth); xianxia has no page (301).
+        private val genrePaths = mapOf(
+            "wuxia" to "genres/wuxia",
+            "fantasy" to "genres/fantasy",
+            "historical" to "genres/historical",
+            "romance" to "genres/romance",
+            "action" to "genres/action",
         )
 
         /** 2-3 letter code from language names / filename tokens. */
@@ -206,7 +224,7 @@ class KissAsian : MainAPI() {
         val path = when {
             data == "popular" -> "most-popular-drama"
             latest -> "recently-added-movie"
-            else -> countryPaths[data]
+            else -> countryPaths[data] ?: genrePaths[data]
         }
         return try {
             val url = if (path == null) mainUrl

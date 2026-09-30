@@ -36,6 +36,12 @@ class KissKH : MainAPI() {
         "all" to "All",
         "drama" to "Dramas",
         "movie" to "Movies",
+        "fantasy" to "Fantasy",
+        "historical" to "Historical",
+        "romance" to "Romance",
+        "action" to "Action",
+        "scifi" to "Sci-Fi",
+        "thriller" to "Thriller",
     )
 
     companion object {
@@ -50,6 +56,19 @@ class KissKH : MainAPI() {
         private const val MAPI_REFERER = "https://moviesapi.to/"
         private const val MAPI_KEY =
             "3a67e8866ae1d2bb9e81fe7f73315a56eb3bdf5e3e755c7554c8be6910aa6b13"
+
+        // Server-side genre catalogs (/genres/<slug>/, paginated /page/N/).
+        // Same a.tip card grid as the /series/ listing, so toCards() applies.
+        // /series/?genre=<g> returns HTTP 500 — the /genres/ paths are the
+        // only working genre endpoint (verified 2026-10-01).
+        private val genrePaths = mapOf(
+            "fantasy" to "genres/fantasy",
+            "historical" to "genres/historical",
+            "romance" to "genres/romance",
+            "action" to "genres/action",
+            "scifi" to "genres/sci-fi",
+            "thriller" to "genres/thriller",
+        )
 
         private val moviesApiRe = Regex("moviesapi\\.to/movie/(\\d+)")
         // Greedy trailing class so the full query string is captured, stopping at a quote.
@@ -126,11 +145,18 @@ class KissKH : MainAPI() {
     // ------------------------------------------------------------------
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         return try {
-            val params = mutableMapOf<String, String>()
             val p = page.coerceAtLeast(1)
-            if (p > 1) params["page"] = p.toString()
-            if (request.data != "all") params["type"] = request.data
-            val doc = app.get("$mainUrl/series/", params = params).document
+            val genre = genrePaths[request.data]
+            val doc = if (genre != null) {
+                app.get(
+                    if (p > 1) "$mainUrl/$genre/page/$p/" else "$mainUrl/$genre/",
+                ).document
+            } else {
+                val params = mutableMapOf<String, String>()
+                if (p > 1) params["page"] = p.toString()
+                if (request.data != "all") params["type"] = request.data
+                app.get("$mainUrl/series/", params = params).document
+            }
             newHomePageResponse(request, doc.toCards())
         } catch (_: Throwable) {
             newHomePageResponse(request, emptyList())

@@ -2,7 +2,7 @@
 // (DramaNice + KDrama.in + KissAsian + Dramahood + KissKH)
 
 // Use an integer for version numbers
-version = 7
+version = 8
 
 dependencies {
     // jsoup 1.18.3 is compiled against jspecify annotations (provided scope),
@@ -11,7 +11,7 @@ dependencies {
 }
 
 cloudstream {
-    description = "Asian drama streaming sites: DramaNice (dramanice.boo), KDrama.in (k-drama.in), KissAsian (kissasian.com.lv), Dramahood (dramahood.mom) and KissKH (kisskh.or.at). Resolves final m3u8 sources with subtitles."
+    description = "Asian drama streaming sites: DramaNice (dramanice.boo), KDrama.in (k-drama.in), KissAsian (kissasian.com.lv), Dramahood (dramahood.mom) and KissKH (kisskh.or.at). Genre and country tabs (wuxia, fantasy, historical, K/C/J/Thai...), TMDB ratings and episode counts on cards, final m3u8 sources with subtitles."
     authors = listOf("drama-scraper")
 
     /**
