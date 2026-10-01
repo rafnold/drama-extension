@@ -9,13 +9,22 @@ before commit).
 Status columns as work lands; keep this file as the current-session handoff
 only. Release history details live in `drama-extension-state.md` (gitignored).
 
-## Current status: **v9 LIVE** (2026-10-01, commit `c207bea`, builds ref `d546beb`)
+## Current status: **v10 LIVE** (2026-10-01, commit `1f7c69a`, builds ref `builds`)
 
 5 providers: DramaNice, KDrama.in, KissAsian (13 tabs), Dramahood, KissKH
-(9 tabs). Live `.cs3` 105,561 bytes sha256 `7cf0b330…` == local build;
-`builds/plugins.json` version 9.
+(9 tabs). Live `.cs3` 109,277 bytes sha256 `420f1fb5…` == local build;
+`builds/plugins.json` version 10.
 
 Recent releases:
+- **v10** (2026-10-01): UG-1/UG-2/UG-4/UG-5. Rewired all 5 providers onto a
+  shared, non-suspend resolver layer (`Resolvers.resolveAll` under a
+  `ResolveContext` budget; per-resolver 15 s cap, ~20 s total). Single
+  dramavideo AES home in `DramavideoResolver.kt` (UG-1). Tiered cache
+  (`Cache` + `TtlCache`), dead-tier short-circuit, `Net` conditional-GET
+  ETag helpers, `ResolverCrypto` pure-Kotlin base64, 9 resolvers, `Vidsync`
+  curation. UG-4 mix (dead+slow+good) verified in Gate.kt, EXIT 0. TMDB
+  episode-count suffix now on-device only when `TMDB_TOKEN` is set. Harness
+  `Gate.kt` (UG-1/UG-4/UG-5 live acceptance) all PASS.
 - **v9** (2026-10-01): removed KissAsian Wuxia tab — its archive has only 2
   series (WP term count 49 = 2 series + 47 per-episode posts; verified via the
   site's own REST). KissAsian = 13 tabs.
