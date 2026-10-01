@@ -1,12 +1,8 @@
 package com.example
 
-import android.util.Base64
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONArray
-import org.json.JSONObject
 import org.jsoup.nodes.Document
 import org.jsoup.select.Elements
 
@@ -48,15 +44,6 @@ class KissKH : MainAPI() {
         private const val UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-        // Megaplay (series episodes) requires a root referer from its own origin.
-        private const val MEGA_REFERER = "https://kisskh.megaplay.su/"
-
-        // Moviesapi.to (vidora) API gate: x-player-key + Referer + Origin.
-        private const val MAPI_ORIGIN = "https://moviesapi.to"
-        private const val MAPI_REFERER = "https://moviesapi.to/"
-        private const val MAPI_KEY =
-            "3a67e8866ae1d2bb9e81fe7f73315a56eb3bdf5e3e755c7554c8be6910aa6b13"
-
         // Server-side genre catalogs (/genres/<slug>/, paginated /page/N/).
         // Same a.tip card grid as the /series/ listing, so toCards() applies.
         // /series/?genre=<g> returns HTTP 500 — the /genres/ paths are the
@@ -70,26 +57,8 @@ class KissKH : MainAPI() {
             "thriller" to "genres/thriller",
         )
 
-        private val moviesApiRe = Regex("moviesapi\\.to/movie/(\\d+)")
-        // Greedy trailing class so the full query string is captured, stopping at a quote.
-        private val m3u8Re = Regex("(https?://[^\"'\\s<>]*\\.m3u8[^\"'\\s<>]*)")
         private val yearRe = Regex("(19\\d{2}|20\\d{2})")
 
-        /** Lenient base64 -> UTF-8 string. Tolerates missing padding and whitespace. */
-        private fun b64(s: String): String {
-            if (s.isBlank()) return ""
-            val clean = s.filterNot { it.isWhitespace() }
-            val padded = clean + when (clean.length % 4) {
-                2 -> "=="
-                3 -> "="
-                else -> ""
-            }
-            return try {
-                String(Base64.decode(padded, Base64.DEFAULT), Charsets.UTF_8)
-            } catch (_: Throwable) {
-                ""
-            }
-        }
     }
 
     // ------------------------------------------------------------------
@@ -109,12 +78,6 @@ class KissKH : MainAPI() {
 
     private fun isMovie(classNames: List<String>): Boolean =
         classNames.any { it.equals("Movie", ignoreCase = true) }
-
-    private fun guessLang(url: String): String {
-        val base = url.substringAfterLast('/').substringBeforeLast('.')
-        val codes = Regex("\\b[a-zA-Z]{2,3}\\b").findAll(base).map { it.value }
-        return codes.lastOrNull() ?: "en"
-    }
 
     // ------------------------------------------------------------------
     // Card parsing
@@ -144,18 +107,23 @@ class KissKH : MainAPI() {
     // MainAPI
     // ------------------------------------------------------------------
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        val p = page.coerceAtLeast(1)
+        val genre = genrePaths[request.data]
+        val url = if (genre != null) {
+            if (p > 1) "$mainUrl/$genre/page/$p/" else "$mainUrl/$genre/"
+        } else {
+            "$mainUrl/series/"
+        }
+        // UG-5 dead tier: over-run listing pages are not re-tried for 1 h.
+        if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
         return try {
-            val p = page.coerceAtLeast(1)
-            val genre = genrePaths[request.data]
             val doc = if (genre != null) {
-                app.get(
-                    if (p > 1) "$mainUrl/$genre/page/$p/" else "$mainUrl/$genre/",
-                ).document
+                app.get(url).document
             } else {
-                val params = mutableMapOf<String, String>()
-                if (p > 1) params["page"] = p.toString()
-                if (request.data != "all") params["type"] = request.data
-                app.get("$mainUrl/series/", params = params).document
+                app.get(url, params = buildMap {
+                    if (p > 1) put("page", p.toString())
+                    if (request.data != "all") put("type", request.data)
+                }).document
             }
             newHomePageResponse(request, doc.toCards())
         } catch (_: Throwable) {
@@ -173,6 +141,8 @@ class KissKH : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
+        // UG-5: re-opened detail pages are served from the episode cache.
+        Cache.episodes.get(url)?.let { return it }
         val doc = app.get(url).document
         val nm = doc.selectFirst("h1")?.text()?.trim()
             ?: doc.selectFirst("meta[property=og:title]")?.attr("content")?.trim()
@@ -189,12 +159,14 @@ class KissKH : MainAPI() {
         // Movie? (detail page has a "Watch" trigger, no episode list)
         val watchUrl = doc.selectFirst("a.watch-movie-trigger")?.attr("href")?.let { abs(it) }
         if (watchUrl != null) {
-            return newMovieLoadResponse(nm, url, TvType.Movie, watchUrl) {
+            val resp = newMovieLoadResponse(nm, url, TvType.Movie, watchUrl) {
                 posterUrl = poster
                 this.year = year
                 this.plot = plot
                 if (tags.isNotEmpty()) this.tags = tags
             }
+            Cache.episodes.put(url, resp)
+            return resp
         }
 
         // Series
@@ -228,16 +200,42 @@ class KissKH : MainAPI() {
         callback: (ExtractorLink) -> Unit,
     ): Boolean {
         return try {
-            val doc = app.get(data, headers = mapOf("User-Agent" to UA)).document
-            val vault = doc.selectFirst("[data-matrix-vault]")?.attr("data-matrix-vault")
-                ?: return false
-            val servers = parseServers(b64(vault))
-            if (servers.isEmpty()) return false
-            var any = false
-            for ((srvName, iframe) in servers) {
-                if (handleIframe(iframe, srvName, subtitleCallback, callback)) any = true
+            // UG-5: cached vaults mean re-opened episodes make no page fetch.
+            var vault = Cache.lists.get(data)?.firstOrNull()
+            if (vault == null) {
+                val doc = app.get(data, headers = mapOf("User-Agent" to UA)).document
+                vault = doc.selectFirst("[data-matrix-vault]")?.attr("data-matrix-vault")
+                    ?: return false
+                Cache.lists.put(data, listOf(vault))
             }
-            any
+            val servers = parseServers(ResolverCrypto.b64(vault))
+            if (servers.isEmpty()) return false
+
+            // UG-4: every working server resolves in parallel under one
+            // ~20 s budget; dead and slow servers drop out silently.
+            val ctx = ResolveContext(name, data)
+            val results = Resolvers.resolveAll(
+                ctx,
+                ResolveContext.TOTAL_BUDGET_MS,
+                servers.map { EmbedTask(it.second, it.first) },
+            )
+
+            // Global dedupe across servers: subtitles by URL, links by URL.
+            val seenSubs = LinkedHashSet<String>()
+            val deduped = results.map { (_, res) ->
+                res.copy(subtitles = res.subtitles.filter { seenSubs.add(it.url) })
+            }
+            val seenUrls = LinkedHashSet<String>()
+            var added = false
+            for (res in deduped) {
+                if (!res.ok) continue
+                val fresh = res.sources.filter { seenUrls.add(it.url) }
+                if (fresh.isEmpty()) continue
+                added =
+                    emitResult(res.copy(ok = true, sources = fresh), name, UA, subtitleCallback, callback) ||
+                    added
+            }
+            added
         } catch (_: Throwable) {
             false
         }
@@ -256,7 +254,7 @@ class KissKH : MainAPI() {
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             val nm = o.optString("name").ifBlank { "Server ${i + 1}" }
-            val inner = b64(o.optString("vault"))
+            val inner = ResolverCrypto.b64(o.optString("vault"))
             val src = Regex("<iframe[^>]*\\ssrc=['\"]([^'\"]*)['\"]").find(inner)
                 ?.groupValues?.get(1)
                 ?: Regex("src=['\"]([^'\"]*)['\"]").find(inner)?.groupValues?.get(1)
@@ -265,142 +263,6 @@ class KissKH : MainAPI() {
             out += nm to u
         }
         return out
-    }
-
-    private suspend fun handleIframe(
-        iframe: String,
-        srvName: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit,
-    ): Boolean {
-        return when {
-            iframe.contains("kisskh.megaplay.su") ->
-                resolveMegaplay(iframe, srvName, subtitleCallback, callback)
-
-            moviesApiRe.containsMatchIn(iframe) ->
-                resolveVidora(iframe, srvName, subtitleCallback, callback)
-
-            iframe.contains("vidmoly.biz") ->
-                resolveVidmoly(iframe, srvName, subtitleCallback, callback)
-
-            // videasy (origin down) and vidlink (wasm-encrypted) are not usable.
-            else -> false
-        }
-    }
-
-    // ------------------------------------------------------------------
-    // Megaplay (series episodes)
-    // ------------------------------------------------------------------
-    private suspend fun resolveMegaplay(
-        iframe: String,
-        srvName: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit,
-    ): Boolean {
-        val page = app.get(iframe, referer = MEGA_REFERER, headers = mapOf("User-Agent" to UA))
-        val payload = page.document.select("script#player-payload").firstOrNull()?.data()
-            ?: Regex("id=['\"]?player-payload['\"]?[^>]*>(.*?)</script>", RegexOption.DOT_MATCHES_ALL)
-                .find(page.text)?.groupValues?.get(1)
-            ?: return false
-        val j = try {
-            JSONObject(payload)
-        } catch (_: Throwable) {
-            return false
-        }
-        val source = j.optString("source")
-        if (!source.startsWith("http")) return false
-        callback(newExtractorLink(name, srvName, source, ExtractorLinkType.M3U8) {
-            referer = MEGA_REFERER
-            quality = 0
-            headers = mapOf("User-Agent" to UA)
-        })
-        val tracks = j.optJSONArray("tracks")
-        if (tracks != null) {
-            for (i in 0 until tracks.length()) {
-                val t = tracks.optJSONObject(i) ?: continue
-                val f = t.optString("file")
-                if (!f.startsWith("http")) continue
-                subtitleCallback(newSubtitleFile(langOf(t.optString("label"), f), f) {
-                    headers = mapOf("User-Agent" to UA, "Referer" to MEGA_REFERER)
-                })
-            }
-        }
-        return true
-    }
-
-    // ------------------------------------------------------------------
-    // Vidora (moviesapi.to)
-    // ------------------------------------------------------------------
-    private suspend fun resolveVidora(
-        iframe: String,
-        srvName: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit,
-    ): Boolean {
-        val tmdbId = moviesApiRe.find(iframe)?.groupValues?.get(1) ?: return false
-        val resp = app.get(
-            "https://moviesapi.to/api/vidora/v1/movie/$tmdbId",
-            referer = "https://moviesapi.to/movie/$tmdbId?theme=8b5cf6",
-            headers = mapOf(
-                "User-Agent" to UA,
-                "x-player-key" to MAPI_KEY,
-                "Origin" to MAPI_ORIGIN,
-            ),
-        )
-        if (!resp.isSuccessful) return false
-        val j = try {
-            JSONObject(resp.text)
-        } catch (_: Throwable) {
-            return false
-        }
-        if (!j.optBoolean("result", false)) return false
-        val sources = j.optJSONArray("sources") ?: return false
-        var any = false
-        for (i in 0 until sources.length()) {
-            val s = sources.optJSONObject(i) ?: continue
-            val m3u8 = s.optString("url")
-            if (!m3u8.startsWith("http")) continue
-            val label = s.optString("source").ifBlank { srvName }
-            callback(newExtractorLink(name, label, m3u8, ExtractorLinkType.M3U8) {
-                referer = MAPI_REFERER
-                quality = 0
-                headers = mapOf("User-Agent" to UA)
-            })
-            val tracks = s.optJSONArray("tracks")
-            if (tracks != null) {
-                for (k in 0 until tracks.length()) {
-                    val t = tracks.optJSONObject(k) ?: continue
-                    val f = t.optString("file")
-                    if (!f.startsWith("http")) continue
-                    subtitleCallback(newSubtitleFile(langOf(t.optString("label"), f), f) {
-                        headers = mapOf("User-Agent" to UA)
-                    })
-                }
-            }
-            any = true
-        }
-        return any
-    }
-
-    // ------------------------------------------------------------------
-    // Vidmoly (m3u8 embedded in the embed page HTML)
-    // ------------------------------------------------------------------
-    private suspend fun resolveVidmoly(
-        iframe: String,
-        srvName: String,
-        subtitleCallback: (SubtitleFile) -> Unit,
-        callback: (ExtractorLink) -> Unit,
-    ): Boolean {
-        val page = app.get(iframe, headers = mapOf("User-Agent" to UA)).text
-        val m3u8 = m3u8Re.find(page)?.groupValues?.get(1)?.trimEnd('\'', '"', ';', ')')
-            ?: return false
-        if (!m3u8.startsWith("http")) return false
-        callback(newExtractorLink(name, srvName, m3u8, ExtractorLinkType.M3U8) {
-            referer = iframe
-            quality = 0
-            headers = mapOf("User-Agent" to UA)
-        })
-        return true
     }
 
     // ------------------------------------------------------------------

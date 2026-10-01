@@ -1,14 +1,8 @@
 package com.example
 
-import android.util.Base64
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.jsoup.nodes.Document
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 /**
  * DramaNice (https://dramanice.boo) - Asian drama streaming.
@@ -55,11 +49,7 @@ class DramaNice : MainAPI() {
         private const val UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        private const val PLAYER_FALLBACK = "https://player.dramavideo.se"
-        private val episodeSlugRe = Regex("/([a-z0-9]+(?:-[a-z0-9]+)*)-episode-(\\d+)/?$")
-        private val fileRe = Regex("\"file\"\\s*:\\s*\"(https?://[^\"]+)\"")
-        private val typeRe = Regex("\"type\"\\s*:\\s*\"([^\"]+)\"")
-        private var playerHostCache: String? = null
+        private val episodeSlugRe = Regex("/([a-z0-9]+(?:-[a-z0-9]+)*)-episode-(\\d+)/?")
         private var sitemapCache: List<String>? = null
     }
 
@@ -131,12 +121,17 @@ class DramaNice : MainAPI() {
         sitemapCache?.let { return it }
         val urls = mutableListOf<String>()
         for (file in listOf("post-sitemap.xml", "post-sitemap2.xml", "post-sitemap3.xml")) {
-            try {
-                val text = app.get("$mainUrl$file").text
+            val url = "$mainUrl$file"
+            // UG-5: conditional GET; a 304 reuses the previously stored body.
+            val text = try {
+                Net.getFresh(url) ?: Net.stored(url)
+            } catch (_: Throwable) {
+                Net.stored(url)
+            }
+            if (text != null) {
                 for (m in Regex("<loc>([^<]+)</loc>").findAll(text)) {
                     urls.add(m.groupValues[1].trim())
                 }
-            } catch (_: Throwable) {
             }
         }
         sitemapCache = urls
@@ -169,65 +164,6 @@ class DramaNice : MainAPI() {
         return out.distinctBy { it.first }.sortedBy { it.first }
     }
 
-    /** Resolves the active player host from the base64 `parts` array in player.js. */
-    private suspend fun playerHost(): String {
-        playerHostCache?.let { return it }
-        var host = PLAYER_FALLBACK
-        try {
-            val js = app.get("https://dramavideo.se/player.js", referer = "https://dramavideo.se/").text
-            val last = Regex("parts\\s*=\\s*\\[([^\\]]+)\\]").findAll(js).lastOrNull()
-            if (last != null) {
-                val parts = last.groupValues[1].split(',')
-                    .map { it.trim().trim('"', '\'') }
-                    .filter { it.isNotEmpty() }
-                    .map {
-                        try {
-                            Base64.decode(it, Base64.DEFAULT).toString(Charsets.UTF_8)
-                        } catch (_: Throwable) {
-                            ""
-                        }
-                    }
-                    .joinToString("")
-                if (parts.startsWith("http")) host = parts
-            }
-        } catch (_: Throwable) {
-        }
-        playerHostCache = host
-        return host
-    }
-
-    private fun aesDecrypt(encData: String, keyHex: String, ivHex: String): String? {
-        return try {
-            val key = SecretKeySpec(keyHex.hexToBytes(), "AES")
-            val iv = IvParameterSpec(ivHex.hexToBytes())
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(Cipher.DECRYPT_MODE, key, iv)
-            cipher.doFinal(Base64.decode(encData, Base64.DEFAULT)).toString(Charsets.UTF_8)
-        } catch (_: Throwable) {
-            null
-        }
-    }
-
-    private fun String.hexToBytes(): ByteArray {
-        val clean = filter { it.isDigit() || it in "abcdefABCDEF" }
-        val out = ByteArray(clean.length / 2)
-        for (i in 0 until out.size) {
-            out[i] = ((clean[i * 2].digitToInt(16) shl 4) + clean[i * 2 + 1].digitToInt(16)).toByte()
-        }
-        return out
-    }
-
-    /** Extracts media sources from the decrypted player page. */
-    private fun extractSources(plain: String): List<Pair<String, String>> {
-        val out = mutableListOf<Pair<String, String>>()
-        for (obj in Regex("\\{[^{}]*\"file\"[^{}]*\\}").findAll(plain)) {
-            val file = fileRe.find(obj.value)?.groupValues?.get(1) ?: continue
-            val type = typeRe.find(obj.value)?.groupValues?.get(1) ?: "hls"
-            out.add(file to type)
-        }
-        return out
-    }
-
     // ------------------------------------------------------------------
     // MainAPI
     // ------------------------------------------------------------------
@@ -239,19 +175,25 @@ class DramaNice : MainAPI() {
             // requests for pagination. "All Dramas" uses the site's
             // paginated image-card listing.
             val base = mainUrl.removeSuffix("/")
+            // UG-5 dead tier: dead listing pages are not re-tried for 1 h.
+            val listUrl = when {
+                request.data in countryClasses -> "$base/list-all-drama/"
+                request.data == "all" && page > 1 -> "$base/most-popular-drama/page/$page/"
+                request.data == "all" -> "$base/most-popular-drama/"
+                else -> mainUrl
+            }
+            if (Cache.isDead(listUrl)) return newHomePageResponse(request, emptyList())
+            val resp = app.get(listUrl)
+            if (resp.code == 404 || resp.code == 410) Cache.markDead(listUrl)
+            val doc = resp.document
             val cards = when {
                 // Country tabs: single-page A-Z index filtered by the
                 // per-item country-XX classes (no pagination requests).
                 request.data in countryClasses ->
-                    app.get("$base/list-all-drama/").document
-                        .toCountryCards(countryClasses.getValue(request.data))
+                    doc.toCountryCards(countryClasses.getValue(request.data))
                 // "All Dramas": site's paginated image-card listing.
-                request.data == "all" -> {
-                    val url = if (page > 1) "$base/most-popular-drama/page/$page/"
-                    else "$base/most-popular-drama/"
-                    app.get(url).document.toDramaCards()
-                }
-                else -> app.get(mainUrl).document.toDramaCards()
+                request.data == "all" -> doc.toDramaCards()
+                else -> doc.toDramaCards()
             }
             newHomePageResponse(request, cards)
         } catch (_: Throwable) {
@@ -269,6 +211,8 @@ class DramaNice : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
+        // UG-5: re-opened detail pages are served from the episode cache.
+        Cache.episodes.get(url)?.let { return it }
         val doc = app.get(url).document
         val nm = doc.selectFirst("h1")?.text()?.trim()
             ?: throw Exception("Could not parse title from $url")
@@ -317,7 +261,7 @@ class DramaNice : MainAPI() {
         }
         episodes.sortBy { it.episode ?: Int.MAX_VALUE }
 
-        return newTvSeriesLoadResponse(nm, url, TvType.AsianDrama, episodes) {
+        val resp = newTvSeriesLoadResponse(nm, url, TvType.AsianDrama, episodes) {
             posterUrl = poster
             this.year = year
             plot = description
@@ -328,6 +272,8 @@ class DramaNice : MainAPI() {
                 else -> null
             }
         }
+        Cache.episodes.put(url, resp)
+        return resp
     }
 
     override suspend fun loadLinks(
@@ -337,56 +283,32 @@ class DramaNice : MainAPI() {
         callback: (ExtractorLink) -> Unit,
     ): Boolean {
         return try {
-            val doc = app.get(data).document
-            val iframeSrc = doc.selectFirst("iframe")
-                ?.let { it.attr("src").ifBlank { it.attr("data-src") } }
-                ?.takeIf { it.contains("dramavideo.se") }
-                ?: return false
-            val watchUrl = toAbsoluteUrl(iframeSrc) ?: return false
+            // UG-5: cached embed selection means re-opened episodes make no
+            // page fetch; the sources tier then skips the whole player chain.
+            var embed = Cache.lists.get(data)?.firstOrNull()
+            if (embed == null) {
+                val doc = app.get(data).document
+                val iframeSrc = doc.selectFirst("iframe")
+                    ?.let { it.attr("src").ifBlank { it.attr("data-src") } }
+                    ?.takeIf { it.contains("dramavideo") }
+                    ?: return false
+                embed = toAbsoluteUrl(iframeSrc) ?: return false
+                Cache.lists.put(data, listOf(embed))
+            }
+            if (embed.isBlank()) return false
 
-            val wdoc = app.get(watchUrl, referer = data).document
-            val servers = wdoc.select("li.linkserver")
-            if (servers.isEmpty()) return false
-
-            val host = playerHost()
+            // UG-4: the single dramavideo embed (which itself fans out over
+            // all li.linkserver servers) resolves under the shared ~20 s
+            // budget.
+            val ctx = ResolveContext(name, data)
+            val results = Resolvers.resolveAll(
+                ctx,
+                ResolveContext.TOTAL_BUDGET_MS,
+                listOf(EmbedTask(embed, "DramaNice")),
+            )
             var added = false
-            for (li in servers) {
-                val code = li.attr("data-video")
-                val provider = li.attr("data-provider").ifBlank { "server" }
-                if (code.isBlank()) continue
-                val playerUrl = "$host/?id=$code&sv=$provider"
-                val plain = try {
-                    val phtml = app.get(playerUrl, referer = watchUrl).document.outerHtml()
-                    val enc = Regex("encData\\s*=\\s*\"([^\"]+)\"").find(phtml)
-                        ?: Regex("encData=\"([^\"]+)\"").find(phtml)
-                        ?: continue
-                    val key = Regex("keyHex\\s*=\\s*\"([^\"]+)\"").find(phtml)
-                        ?: Regex("keyHex=\"([^\"]+)\"").find(phtml)
-                        ?: continue
-                    val iv = Regex("ivHex\\s*=\\s*\"([^\"]+)\"").find(phtml)
-                        ?: Regex("ivHex=\"([^\"]+)\"").find(phtml)
-                        ?: continue
-                    aesDecrypt(enc.groupValues[1], key.groupValues[1], iv.groupValues[1])
-                        ?: continue
-                } catch (_: Throwable) {
-                    continue
-                }
-                for ((file, type) in extractSources(plain)) {
-                    val isHls = type == "hls" || file.contains(".m3u8")
-                    callback(
-                        newExtractorLink(
-                            name,
-                            "DramaNice $provider",
-                            file,
-                            if (isHls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO,
-                        ) {
-                            referer = watchUrl
-                            quality = 0
-                            headers = mapOf("User-Agent" to UA)
-                        }
-                    )
-                    added = true
-                }
+            for ((_, res) in results) {
+                if (res.ok) added = emitResult(res, name, UA, subtitleCallback, callback) || added
             }
             added
         } catch (_: Throwable) {

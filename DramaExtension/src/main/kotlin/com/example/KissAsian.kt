@@ -2,8 +2,6 @@ package com.example
 
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.newExtractorLink
 import org.json.JSONArray
 import org.json.JSONObject
 import org.jsoup.nodes.Document
@@ -65,15 +63,7 @@ class KissAsian : MainAPI() {
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         private val REST = "https://wwv21.kissasian.com.lv/wp-json/wp/v2/"
 
-        // Legacy regexes: kept as a fallback in case the site ever embeds
-        // the sources back into the player page (they are empty now).
-        private val srcRe = Regex("var\\s+src\\s*=\\s*\"([^\"]+)\"")
-        private val srcCdnListRe = Regex("var\\s+srcCdnList\\s*=\\s*\\[([^\\]]+)\\]")
-        private val subApiRe = Regex("var\\s+subApi\\s*=\\s*\"([^\"]+)\"")
-        private val m3u8Re = Regex("https?://[^\"',\\s]+\\.m3u8")
         private val epRe = Regex("episode-(\\d+)")
-        private val epParamRe = Regex("[?&]episode=(\\d+)")
-        private val originRe = Regex("https?://[^/]+")
         private val bgImageRe = Regex("url\\(\\s*['\"]?([^'\")]+)['\"]?\\s*\\)")
 
         private val countryPaths = mapOf(
@@ -99,33 +89,6 @@ class KissAsian : MainAPI() {
             "action" to "genres/action",
         )
 
-        /** 2-3 letter code from language names / filename tokens. */
-        private val langNames = mapOf(
-            "english" to "en", "eng" to "en", "en" to "en",
-            "korean" to "ko", "kor" to "ko", "ko" to "ko",
-            "japanese" to "ja", "jpn" to "ja", "ja" to "ja",
-            "chinese" to "zh", "chi" to "zh", "zho" to "zh", "zh" to "zh",
-            "mandarin" to "zh", "cantonese" to "yue", "yue" to "yue",
-            "thai" to "th", "tha" to "th", "th" to "th",
-            "filipino" to "fil", "fil" to "fil", "tagalog" to "fil",
-            "french" to "fr", "fra" to "fr", "fr" to "fr",
-            "german" to "de", "deu" to "de", "de" to "de",
-            "spanish" to "es", "spa" to "es", "es" to "es",
-            "indonesian" to "id", "ind" to "id", "id" to "id",
-            "vietnamese" to "vi", "vie" to "vi", "vi" to "vi",
-        )
-
-        private fun String?.langCode(): String? {
-            val s = this?.lowercase()?.trim() ?: return null
-            if (s.length in 1..3 && s.all { it.isLetter() }) langNames[s]?.let { return it }
-            for (t in s.split(Regex("[^a-z]+"))) {
-                if (t.length in 2..3 && langNames[t] != null) return langNames[t]
-            }
-            for (t in s.split(Regex("[^a-z]+"))) {
-                if (t.length >= 4 && langNames[t] != null) return langNames[t]
-            }
-            return null
-        }
     }
 
     // ------------------------------------------------------------------
@@ -225,11 +188,18 @@ class KissAsian : MainAPI() {
             latest -> "recently-added-movie"
             else -> countryPaths[data] ?: genrePaths[data]
         }
+        val url = if (path == null) mainUrl
+        else if (page <= 1) "${mainUrl}$path/"
+        else "${mainUrl}$path/page/$page/"
+        // UG-5 dead tier: dead listing pages are not re-tried for 1 h.
+        if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
         return try {
-            val url = if (path == null) mainUrl
-            else if (page <= 1) "${mainUrl}$path/"
-            else "${mainUrl}$path/page/$page/"
-            val doc = app.get(url, headers = mapOf("User-Agent" to UA)).document
+            val resp = app.get(url, headers = mapOf("User-Agent" to UA))
+            if (resp.code == 404 || resp.code == 410) {
+                Cache.markDead(url)
+                return newHomePageResponse(request, emptyList())
+            }
+            val doc = resp.document
             newHomePageResponse(request, if (latest) doc.toLatestCards() else doc.toCards())
         } catch (_: Throwable) {
             newHomePageResponse(request, emptyList())
@@ -334,6 +304,8 @@ class KissAsian : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun load(url: String): LoadResponse {
+        // UG-5: re-opened detail pages are served from the episode cache.
+        Cache.episodes.get(url)?.let { return it }
         val doc = app.get(url, headers = mapOf("User-Agent" to UA)).document
 
         val h1 = doc.selectFirst("h1")?.text()?.trim().orEmpty()
@@ -389,12 +361,14 @@ class KissAsian : MainAPI() {
             else -> null
         }
 
-        return if (eps.isNotEmpty()) newTvSeriesLoadResponse(name, url, TvType.AsianDrama, eps) {
+        val resp = if (eps.isNotEmpty()) newTvSeriesLoadResponse(name, url, TvType.AsianDrama, eps) {
             applyCommon()
             this.showStatus = showStatus
         } else newMovieLoadResponse(name, url, TvType.AsianDrama, url) {
             applyCommon()
         }
+        Cache.episodes.put(url, resp)
+        return resp
     }
 
     // ------------------------------------------------------------------
@@ -408,100 +382,36 @@ class KissAsian : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val url = data
-        val doc = app.get(url, headers = mapOf("User-Agent" to UA)).document
-        val embedUrl = doc.selectFirst("li[data-video]")?.attr("data-video")
-            ?: doc.selectFirst("iframe[src*='dramavibe']")?.attr("src")
-            ?: doc.selectFirst("iframe")?.attr("src")
-            ?: return false
-        val fullEmbed = toAbsoluteUrl(embedUrl) ?: return false
-
-        val playerHeaders = mapOf("User-Agent" to UA)
-        val playerHtml = try {
-            app.get(fullEmbed, referer = url, headers = playerHeaders).text
-        } catch (_: Throwable) {
-            null
-        }
-
-        // 1) Runtime source resolution: player_source.php?episode=N
-        val streamUrls = LinkedHashSet<String>()
-        val epParam = epParamRe.find(fullEmbed)?.groupValues?.get(1)
-        if (!epParam.isNullOrBlank() && playerHtml != null) {
-            val origin = originRe.find(fullEmbed)?.value
-            if (origin != null) {
-                try {
-                    val sourceUrl = "$origin/player_source.php?episode=$epParam"
-                    val json = app.get(
-                        sourceUrl, referer = fullEmbed, headers = playerHeaders
-                    ).text
-                    val obj = JSONObject(json)
-                    val list = obj.optJSONArray("list")
-                    if (list != null) {
-                        for (i in 0 until list.length()) {
-                            val u = list.optString(i)
-                            if (u.startsWith("http")) streamUrls += u
-                        }
-                    }
-                    if (streamUrls.isEmpty()) {
-                        val src = obj.optString("src")
-                        if (src.startsWith("http")) streamUrls += src
-                    }
-                } catch (_: Throwable) {
-                    // fall through to the in-page fallbacks below
-                }
+        // UG-5: cached embed selection means re-opened episodes make no
+        // page fetch; the sources tier then skips the whole player chain.
+        var embed = Cache.lists.get(url)?.firstOrNull()
+        if (embed == null) {
+            val doc = try {
+                app.get(url, headers = mapOf("User-Agent" to UA)).document
+            } catch (_: Throwable) {
+                return false
             }
+            val raw = doc.selectFirst("li[data-video]")?.attr("data-video")
+                ?: doc.selectFirst("iframe[src*='dramavibe']")?.attr("src")
+                ?: doc.selectFirst("iframe")?.attr("src")
+                ?: return false
+            embed = toAbsoluteUrl(raw) ?: return false
+            Cache.lists.put(url, listOf(embed))
         }
+        if (embed.isBlank()) return false
 
-        // 2) Legacy fallback: sources embedded directly in the player page.
-        if (streamUrls.isEmpty() && playerHtml != null) {
-            srcCdnListRe.find(playerHtml)
-                ?.groupValues?.get(1)
-                ?.let { raw -> m3u8Re.findAll(raw).forEach { streamUrls += it.value } }
-            srcRe.find(playerHtml)
-                ?.groupValues?.get(1)
-                ?.takeIf { it.contains(".m3u8") }
-                ?.let { streamUrls += it }
-            m3u8Re.findAll(playerHtml).forEach { streamUrls += it.value }
-        }
-        if (streamUrls.isEmpty()) return false
-
-        // Subtitles: subApi (signed, Referer-gated) from the player page.
-        if (playerHtml != null) {
-            val subApi = subApiRe.find(playerHtml)?.groupValues?.get(1)
-            if (!subApi.isNullOrBlank()) {
-                try {
-                    val subsJson = app.get(
-                        toAbsoluteUrl(subApi) ?: subApi,
-                        referer = fullEmbed,
-                        headers = playerHeaders
-                    ).text
-                    val arr = JSONArray(subsJson)
-                    val seenSubs = LinkedHashSet<String>()
-                    for (i in 0 until arr.length()) {
-                        val s = arr.optJSONObject(i) ?: continue
-                        val u = s.optString("url")
-                        if (!u.startsWith("http") || !seenSubs.add(u)) continue
-                        val lang = s.optString("lang").langCode()
-                            ?: s.optString("format").langCode()
-                            ?: u.substringBefore('?').substringAfterLast('/').langCode()
-                            ?: "en"
-                        subtitleCallback(newSubtitleFile(lang, u))
-                    }
-                } catch (_: Throwable) {
-                    // no subtitles for this episode
-                }
-            }
-        }
-
+        // UG-4: the single server resolves under the shared ~20 s budget.
+        val ctx = ResolveContext(name, url)
+        val results = Resolvers.resolveAll(
+            ctx,
+            ResolveContext.TOTAL_BUDGET_MS,
+            listOf(EmbedTask(embed, "KissAsian")),
+        )
         var added = false
-        for ((index, streamUrl) in streamUrls.withIndex()) {
-            callback(
-                newExtractorLink(name, "KissAsian ${index + 1}", streamUrl, ExtractorLinkType.M3U8) {
-                    this.referer = fullEmbed
-                    headers = mapOf("User-Agent" to UA)
-                }
-            )
-            added = true
+        for ((_, res) in results) {
+            if (res.ok) added = emitResult(res, name, UA, subtitleCallback, callback) || added
         }
         return added
     }
+
 }
