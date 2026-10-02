@@ -9,13 +9,30 @@ before commit).
 Status columns as work lands; keep this file as the current-session handoff
 only. Release history details live in `drama-extension-state.md` (gitignored).
 
-## Current status: **v11 LIVE** (2026-10-02, commit `03b4d6d`, builds ref `builds`)
+## Current status: **v12 building** (2026-10-02; v11 LIVE at commit `03b4d6d`, builds ref `builds`)
 
 5 providers: DramaNice, KDrama.in, KissAsian (13 tabs), Dramahood, KissKH
-(9 tabs). Live `.cs3` 115,494 bytes sha256 `7438aefc…` == local build;
-`builds/plugins.json` version 11.
+(9 tabs). v11 live `.cs3` 115,494 bytes sha256 `7438aefc…` == local build;
+`builds/plugins.json` version 11. v12 fixes the v11 empty-cards regression.
 
 Recent releases:
+- **v12** (2026-10-02): v11 regression fix — KissAsian + Dramahood rendered
+  only category tabs, zero cards on device. Root cause (found by diffing
+  v10→v11, `git diff 1f7c69a 03b4d6d`): v11 moved `mainUrl`s to
+  `SiteConfig.mirror()`, which returns the config value verbatim — the
+  mirrors have NO trailing slash — while KissAsian/Dramahood still
+  concatenated `"${mainUrl}$path/"` →
+  `https://wwv21.kissasian.com.lvmost-popular-drama/` (DNS NXDOMAIN →
+  exception → empty tab; every tab of both providers). The other 3
+  providers join with an explicit `/` and were unaffected. Fix:
+  `SiteConfig.mirror()` now always returns WITHOUT a trailing slash (with a
+  doc comment recording the incident) and every provider joins paths with an
+  explicit `/` — KissAsian getMainPage + search fallback, Dramahood
+  getMainPage, plus latent same-class bugs: KDramaIn search
+  (`mainUrl + "dramas.php"`) and DramaNice sitemap fetch (`"$mainUrl$file"`,
+  would have 404'd search). Gate hardened: new "main pages must produce
+  cards" FAIL check runs first for all 5 providers — v11's 55 PASS / 0 FAIL
+  gate missed this because `capture()` silently skipped empty main pages.
 - **v11** (2026-10-02): UG-3 — remote SiteConfig hot-patching. New `SiteConfig.kt`
   fetches `config.json` once per session (24 h on-disk TTL + ETag, fails open to
   hardcoded defaults). All 5 providers read `mainUrl` from `SiteConfig.mirror(...)`;
@@ -55,19 +72,82 @@ Recent releases:
    k-drama.in Ranking/Watchlist + rating badges; DramaNice K/C/J/Thai tabs
    (text cards).
 2. **Watch item — TMDB " (N EP)" suffix on device**: token is read from
-   `System.getenv` (env var name: TMDB_TOKEN, value in `.pi/tmdb.env` for
-   harness runs) — **no hardcoded token by user decision (reaffirmed
-   2026-10-01)**. A normal Android app process likely lacks the env var, so
-   the suffix may not show on device (cards otherwise fine; rating badge is
-   site-HTML based and unaffected). If it becomes a problem: prefer injecting
-   the env var into the app process (user side); do NOT hardcode without a new
-   user decision.
-3. Optional: candidate providers from `drama-scraper/` (EverythingMoe, GoPlay,
+   `System.getenv` (env var name: TMDB_TOKEN, **set in the machine
+   environment** — user decision 2026-10-02: the token is never hardcoded in
+   the codebase; verified 2026-10-02 that no `eyJ` appears in the source, in
+   any git commit (`git log --all -S "eyJ"` → nothing), or in the v11 `.cs3`
+   classes.dex; `.pi/tmdb.env` no longer exists). A normal Android app
+   process likely lacks the env var, so the suffix may not show on device
+   (cards otherwise fine; rating badge is site-HTML based and unaffected).
+   If it becomes a problem: prefer injecting the env var into the app
+   process (user side); do NOT hardcode without a new user decision.
+3. **primeshows.org** (user-requested 2026-10-02, researched) — new provider
+   candidate: streaming-platform categories (Prime/Netflix/Disney+/Apple TV/
+   Max/Hulu/Peacock/Starz/Crunchyroll) + latest & trending. Verified facts,
+   routes, and the full embed matrix are in the section below.
+4. Optional: candidate providers from `drama-scraper/` (EverythingMoe, GoPlay,
    Einthusan, KissKH .ovh/.dk, AsianCrush, OnDemandChina, Dramafren,
    MyAsianTV, Asiaflix, Rive, Vidbox, KissAsian.video) — same pattern:
    live-verify chain -> harness -> gate.
-4. Not possible on the current 5 sites (need new sites): dedicated Xianxia,
+5. Not possible on the current 5 sites (need new sites): dedicated Xianxia,
    Animation, Live-action split, DramaNice/Dramahood genre tabs.
+
+## primeshows.org (candidate provider, researched 2026-10-02)
+
+Goal (user): streaming providers (Prime, Netflix, Disney+ etc.) as
+categories + latest/trending. The site is a Next.js App Router app whose
+catalog is pure **TMDB**, served through an open same-origin proxy, and
+whose player is a **TMDB-id embed aggregator** — both fit our architecture.
+
+- **Catalog (no API key needed):** `GET
+  https://primeshows.org/api/proxy/tmdb?endpoint=<TMDB v3 path minus /3>&<params>`
+  (e.g. `endpoint=/trending/tv/week`, `Accept: application/json`). The server
+  holds the TMDB key; the client JS also carries 3 embedded TMDB v3 API keys
+  as a direct-call fallback. Endpoints the site uses: `/trending/{movie|tv}/
+  <window>`, `/movie/popular?language=en-US&page=1&vote_count.gte=1000`,
+  `/tv/popular?...`, `/discover/movie`, `/discover/tv`, `/search/multi
+  ?language=en-US&query=`, `/watch/providers/{movie|tv}?language=en-US`,
+  `/configuration`. (Or skip the proxy and call TMDB directly with our own
+  key.)
+- **Platform categories:** TMDB `/watch/providers/{movie|tv}` returns
+  `{provider_id, logo_path, name, display_priority}` (Netflix, Prime Video,
+  Disney+, Apple TV+, Max, Hulu, Peacock, Starz, Crunchyroll, …); group titles
+  by `provider_id`. The site's own `/section/provider/<providerId>` route does
+  exactly this (`?name=<Name>&watch_region=US`). Trending =
+  `/trending/{movie|tv}/week`; latest = the site's "Now Playing" query
+  (popular + `vote_count.gte=1000`). Routes: `/section/trending/{movie|tv|anime}`,
+  `/section/movie-genre/<genreId>`, search via `/search/multi`.
+- **Watch routes:** `/watch/movie/<tmdbId>`, `/watch/tv/<tmdbId>
+  ?season=N&episode=N`, `/watch/anime/<anilistId>?episode=N`; detail pages
+  `/movie/<id>`, `/tv/<id>`, `/tv/anime-<anilistId>`.
+- **Embed matrix (non-anime; movie = `<id>`, TV = `<id>/<season>/<ep>`):**
+  source order as on the site:
+  | # | id | movie URL | TV URL |
+  |---|----|-----------|--------|
+  | 1 | vidy (Multi) | `https://www.vidy.st/movie/<id>` | `https://www.vidy.st/tv/<id>/<s>/<w>` (+ `nextEpisode=true&episodeSelector=true&autoplayNextEpisode=true`, resume `t=<sec>`) |
+  | 2 | vidfast (Multi) | `https://vidfast.vc/movie/<id>?autoPlay=true` | `https://vidfast.vc/tv/<id>/<s>/<w>?autoPlay=true` |
+  | 3 | rozar (Hindi) | `https://rozgarlelo.modiplay.xyz/embed/tmdb/movie?id=<id>` | `https://rozgarlelo.modiplay.xyz/embed/tmdb/tv?id=<id>&s=<s>&e=<w>` |
+  | 4 | scapa (Hindi) | `https://screenscape.me/embed?tmdb=<id>&type=movie&lan=eng` | `https://screenscape.me/embed?tmdb=<id>&type=tv&s=<s>&e=<w>&lan=eng` |
+  | 5 | vidrock (Original) | `https://vidrock.ru/movie/<id>` | `https://vidrock.ru/tv/<id>/<s>/<w>` |
+  | 6 | vidbolt (Multi) | `https://vidbolt.xyz/movie/<id>?autoPlay=true` | `https://vidbolt.xyz/tv/<id>/<s>/<w>?autoPlay=true` |
+  | 7 | vidlink (Original) | `https://vidlink.pro/movie/<id>` | `https://vidlink.pro/tv/<id>/<s>/<w>` |
+  | 8 | vidzee (Original) | `https://player.vidzee.wtf/embed/movie/<id>` | `https://player.vidzee.wtf/embed/tv/<id>/<s>/<w>` |
+  | 9 | reelsdownload (Hindi, usesFallback) | `https://embed.reelsdownload.online/player/<id>?key=k_8b8dc5f4aaffbc68d155aac6` | `https://embed.reelsdownload.online/player/<id>/<s>/<w>?key=k_8b8dc5f4aaffbc68d155aac6` |
+  vidfast has a fallback-domain list: vidfast.bz/.in/.io/.me/.net/.pm/.pro/.xyz
+  (the player rotates when the primary is down).
+- **Anime (AniList id `<id>`, episode `<ep>`):** `anime-mega-sub/dub` →
+  `https://tryembed.us.cc/embed/anime/<id>/<ep>/{sub|dub}`; `anime-upcloud-`
+  `sub/dub/hindi` → `https://vidnest.fun/anime/<id>/<ep>/{sub|dub|hindi}`.
+- **Open items before coding:** (1) live-verify one movie + one TV episode per
+  host (m3u8/mp4 extraction, headers) and pick the default source order;
+  (2) the site's player chunks (hls.js) + `streamed.pk` preconnect suggest
+  some sources may be self-hosted HLS on Upcloud — check the upcloud sources
+  specifically; (3) TMDB provider_id list is dynamic (fetch
+  `/watch/providers` at runtime rather than hardcoding ids).
+- Other site facts: user APIs (auth/history/favorites/watchlist/
+  content-views/player-settings) are account features we don't need;
+  `https://analytics.vidshows.xyz` is telemetry; build id
+  `KhaTR3-xnt2cmp-fiGC4W` (2026-10-02).
 
 ## Verified live-site facts (v8/v9 investigation, 2026-10-01)
 - KissAsian `/genres/<g>/`: 31 genre pages, same `a.img`+`h3.title` grid,
@@ -90,8 +170,12 @@ Recent releases:
 ## Useful artifacts (persistent — `/workspace/tmp-artifacts/`)
 - `harness-proj` — JVM live-verification harness (gradle project; verbatim
   provider copies in its src — sync after repo edits). Run: `cd
-  /workspace/drama-extension && TMDB_TOKEN=<from .pi/tmdb.env> ./gradlew -p
-  /workspace/tmp-artifacts/harness-proj run` (5-10 min, must EXIT=0).
+  /workspace/drama-extension && ./gradlew -p /workspace/tmp-artifacts/
+  harness-proj run` (5-10 min, must EXIT=0; picks up `$TMDB_TOKEN` from the
+  machine env — without it the TMDB-suffix gate test is skipped). Note:
+  this machine needed `apt-get install openjdk-21-jdk-headless` on
+  2026-10-02 (fresh container, no JDK by default; gradle 8.12 via the repo
+  wrapper).
 - `harness/` — original harness sources + `cp.txt` classpath. `hj/` — extra
   JVM jars. `plugin-fresh` — cloudstream gradle plugin source @ 
   (rebuild mavenLocal: `./gradlew publishToMavenLocal`).
@@ -100,8 +184,9 @@ Recent releases:
   v8 investigation captures in `/tmp/cats/`.
 - Build stub the extension compiles against:
   `/root/.gradle/caches/cloudstream/cloudstream/cloudstream.jar`.
-- TMDB token: `.pi/tmdb.env` (v4 JWT, ~6-month expiry) — harness runs only;
-  never in code (user decision).
+- TMDB token: `$TMDB_TOKEN` in the machine environment (v4 JWT, ~6-month
+  expiry) — harness runs only; never in code or the dex (user decision
+  2026-10-02; verified absent from source, git history, and the v11 `.cs3`).
 - In-app install URL: `https://raw.githubusercontent.com/rafnold/drama-extension/builds/repo.json`
 - `$GITHUB_TOKEN` (fine-grained PAT, user `rafnold`) is embedded in the git
   remote origin URL (replaced 2026-09-30; old dead token optionally

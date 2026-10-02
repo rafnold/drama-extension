@@ -188,9 +188,10 @@ class KissAsian : MainAPI() {
             latest -> "recently-added-movie"
             else -> countryPaths[data] ?: genrePaths[data]
         }
-        val url = if (path == null) mainUrl
-        else if (page <= 1) "${mainUrl}$path/"
-        else "${mainUrl}$path/page/$page/"
+        val base = mainUrl.removeSuffix("/")
+        val url = if (path == null) base
+        else if (page <= 1) "$base/$path/"
+        else "$base/$path/page/$page/"
         // UG-5 dead tier: dead listing pages are not re-tried for 1 h.
         if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
         return try {
@@ -224,8 +225,9 @@ class KissAsian : MainAPI() {
             val seen = LinkedHashSet<String>()
             val out = mutableListOf<SearchResponse>()
             val needle = q.lowercase()
+            val base = mainUrl.removeSuffix("/")
             for (p in 1..6) {
-                val url = if (p == 1) "${mainUrl}drama-list/" else "${mainUrl}drama-list/page/$p/"
+                val url = if (p == 1) "$base/drama-list/" else "$base/drama-list/page/$p/"
                 val doc = app.get(url, headers = mapOf("User-Agent" to UA)).document
                 for (card in doc.toCards()) {
                     if (!seen.add(card.url)) continue

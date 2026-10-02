@@ -120,8 +120,9 @@ class DramaNice : MainAPI() {
     private suspend fun sitemapUrls(): List<String> {
         sitemapCache?.let { return it }
         val urls = mutableListOf<String>()
+        val base = mainUrl.removeSuffix("/")
         for (file in listOf("post-sitemap.xml", "post-sitemap2.xml", "post-sitemap3.xml")) {
-            val url = "$mainUrl$file"
+            val url = "$base/$file"
             // UG-5: conditional GET; a 304 reuses the previously stored body.
             val text = try {
                 Net.getFresh(url) ?: Net.stored(url)

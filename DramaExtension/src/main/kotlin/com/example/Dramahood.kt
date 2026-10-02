@@ -155,8 +155,9 @@ class Dramahood : MainAPI() {
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val path = categoryPaths[request.data] ?: return newHomePageResponse(request, emptyList())
-        val url = if (page <= 1) "${mainUrl}$path/"
-        else "${mainUrl}$path/page/$page/"
+        val base = mainUrl.removeSuffix("/")
+        val url = if (page <= 1) "$base/$path/"
+        else "$base/$path/page/$page/"
         // UG-5 dead tier: over-run pages 404 and are not re-tried for 1 h.
         if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
         return try {

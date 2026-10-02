@@ -215,7 +215,7 @@ class KDramaIn : MainAPI() {
     override suspend fun search(query: String): List<SearchResponse> {
         return try {
             val doc = app.get(
-                mainUrl + "dramas.php",
+                mainUrl.removeSuffix("/") + "/dramas.php",
                 params = mapOf("type" to "all", "q" to query),
             ).document
             val counts = fetchTmdbEpisodeCounts(doc.toCardTmdbIds())

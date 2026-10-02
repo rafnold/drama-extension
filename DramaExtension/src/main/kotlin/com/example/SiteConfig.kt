@@ -84,6 +84,12 @@ object SiteConfig {
          * configured ordered list. Dead hosts (present in [dead] with a
          * death-time in the future) are skipped, so mirror selection stays
          * correct even after a host is retired in the config.
+         *
+         * Always returned WITHOUT a trailing slash, so callers can join
+         * paths with an explicit "/" no matter what the remote config
+         * contains (v11 shipped slash-less mirrors; providers that
+         * concatenated "${'$'}{mainUrl}path/" then produced URLs like
+         * https://host.lvpath/ and every tab returned 0 cards).
          */
         fun mirror(key: String): String {
             val list = mirrors[key].orEmpty()
@@ -91,9 +97,9 @@ object SiteConfig {
             for (raw in list) {
                 val death = dead[hostOf(raw)]
                 if (death != null && now < death) continue
-                return raw
+                return raw.removeSuffix("/")
             }
-            return list.firstOrNull().orEmpty()
+            return list.firstOrNull().orEmpty().removeSuffix("/")
         }
 
         companion object {
