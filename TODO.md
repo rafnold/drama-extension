@@ -9,7 +9,7 @@ before commit).
 Status columns as work lands; keep this file as the current-session handoff
 only. Release history details live in `drama-extension-state.md` (gitignored).
 
-## Current status: **v13 LIVE** (2026-10-02, commit `4b7c2e1`, builds ref `builds`)
+## Current status: **v13 LIVE** (2026-10-02, commit `05add09`, builds ref `builds`)
 
 5 providers: DramaNice, KDrama.in, KissAsian (13 tabs), Dramahood, KissKH
 (9 tabs). Live `.cs3` 116,716 bytes sha256 `d559b4f1…` == local build;
@@ -19,7 +19,7 @@ v12 (commit `2da2ebf`) fixed the v11 empty-cards regression
 (KissAsian + Dramahood zero cards).
 
 Recent releases:
-- **v13** (2026-10-02, commit `4b7c2e1`): env-var overrides for the
+- **v13** (2026-10-02, commit `05add09`): env-var overrides for the
   remote-config secrets. The 6 resolver/secret accessors in `SiteConfig.kt`
   now honor per-machine environment variables (highest precedence:
   **env var > remote config.json > hardcoded defaults**);
