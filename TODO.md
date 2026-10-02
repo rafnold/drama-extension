@@ -9,13 +9,22 @@ before commit).
 Status columns as work lands; keep this file as the current-session handoff
 only. Release history details live in `drama-extension-state.md` (gitignored).
 
-## Current status: **v10 LIVE** (2026-10-01, commit `1f7c69a`, builds ref `builds`)
+## Current status: **v11 LIVE** (2026-10-02, commit `03b4d6d`, builds ref `builds`)
 
 5 providers: DramaNice, KDrama.in, KissAsian (13 tabs), Dramahood, KissKH
-(9 tabs). Live `.cs3` 109,277 bytes sha256 `420f1fb5…` == local build;
-`builds/plugins.json` version 10.
+(9 tabs). Live `.cs3` 115,494 bytes sha256 `7438aefc…` == local build;
+`builds/plugins.json` version 11.
 
 Recent releases:
+- **v11** (2026-10-02): UG-3 — remote SiteConfig hot-patching. New `SiteConfig.kt`
+  fetches `config.json` once per session (24 h on-disk TTL + ETag, fails open to
+  hardcoded defaults). All 5 providers read `mainUrl` from `SiteConfig.mirror(...)`;
+  6 resolvers read their seeds/keys/player-hosts/vidsync base from it (only the Vidora
+  `x-player-key` path stays literal; TMDB_API kept hardcoded). Config repo =
+  `rafnold/drama-extension/drama-config/config.json`. Harness `Gate.kt` gains
+  `testSiteConfig` (mirror default/flip/dead-skip, fromJson round-trip + partial
+  fail-open, fail-open on dead URL, on-disk 24 h TTL) — 15/15 PASS; full gate EXIT 0
+  (55 PASS / 0 FAIL / 9 SKIP).
 - **v10** (2026-10-01): UG-1/UG-2/UG-4/UG-5. Rewired all 5 providers onto a
   shared, non-suspend resolver layer (`Resolvers.resolveAll` under a
   `ResolveContext` budget; per-resolver 15 s cap, ~20 s total). Single
@@ -84,7 +93,7 @@ Recent releases:
   /workspace/drama-extension && TMDB_TOKEN=<from .pi/tmdb.env> ./gradlew -p
   /workspace/tmp-artifacts/harness-proj run` (5-10 min, must EXIT=0).
 - `harness/` — original harness sources + `cp.txt` classpath. `hj/` — extra
-  JVM jars. `plugin-fresh` — cloudstream gradle plugin source @ `32895ae`
+  JVM jars. `plugin-fresh` — cloudstream gradle plugin source @ 
   (rebuild mavenLocal: `./gradlew publishToMavenLocal`).
 - `cloudstream-903ef47`, `cs-src`, `csjar_check` — user's app build source /
   unpacked stub classes. `ka-*` / `kk-*` captures (incl. valid m3u8/.srt);
