@@ -17,8 +17,7 @@ object VidbasicResolver : Resolver {
     override val hosts = listOf("vidbasic")
 
     /** Known (key, iv) pairs, tried in order until one yields an http m3u8. */
-    internal val VIDBASIC_AES_SEEDS: List<Pair<String, String>> =
-        listOf("94588293375053432799222445521289" to "5259228356829423")
+    internal val VIDBASIC_AES_SEEDS: List<Pair<String, String>> get() = SiteConfig.vidbasicAesSeeds()
 
     private val HEADERS = mapOf(
         "User-Agent" to UA,

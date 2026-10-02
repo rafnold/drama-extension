@@ -19,7 +19,7 @@ object ZokoEmbedResolver : Resolver {
     override val hosts = listOf("embedload", "zokoanime", "otakuembed")
 
     /** Known XOR keys (kept list-shaped so rotations can be added). */
-    internal val ZOKO_XOR_SEEDS: List<String> = listOf("otaku-embed-v1")
+    internal val ZOKO_XOR_SEEDS: List<String> get() = SiteConfig.zokoXorSeeds()
 
     private val HEADERS = mapOf(
         "User-Agent" to UA,

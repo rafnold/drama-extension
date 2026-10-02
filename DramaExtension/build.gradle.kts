@@ -2,7 +2,7 @@
 // (DramaNice + KDrama.in + KissAsian + Dramahood + KissKH)
 
 // Use an integer for version numbers
-version = 10
+version = 11
 
 dependencies {
     // jsoup 1.18.3 is compiled against jspecify annotations (provided scope),

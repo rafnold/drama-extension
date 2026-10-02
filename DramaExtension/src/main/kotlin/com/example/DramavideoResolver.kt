@@ -17,8 +17,8 @@ import org.jsoup.Jsoup
 object DramavideoResolver : Resolver {
     override val hosts = listOf("dramavideo")
 
-    private const val PLAYER_JS_FALLBACK = "https://dramavideo.se/player.js"
-    private const val PLAYER_HOST_FALLBACK = "https://player.dramavideo.se"
+    private val PLAYER_JS_FALLBACK: String get() = SiteConfig.dramavideoPlayerJs()
+    private val PLAYER_HOST_FALLBACK: String get() = SiteConfig.dramavideoPlayerHost()
     private val HEADERS = mapOf(
         "User-Agent" to UA,
         "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -173,7 +173,7 @@ object DramavideoResolver : Resolver {
             Jsoup.parse(watchHtml, watchUrl).select("script[src]")
                 .map { it.attr("src") }
                 .firstOrNull { it.contains("player.js") }
-                ?.let { absoluteUrl(it, "https://dramavideo.se/") }
+                ?.let { absoluteUrl(it, PLAYER_JS_FALLBACK) }
                 ?: PLAYER_JS_FALLBACK
         } catch (_: Throwable) {
             PLAYER_JS_FALLBACK

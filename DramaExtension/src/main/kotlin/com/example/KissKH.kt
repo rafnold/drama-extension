@@ -24,7 +24,7 @@ import org.jsoup.select.Elements
  */
 class KissKH : MainAPI() {
     override var name = "KissKH"
-    override var mainUrl = "https://kisskh.or.at"
+    override var mainUrl = SiteConfig.mirror("kisskh")
     override val hasMainPage = true
     override val supportedTypes = setOf(TvType.AsianDrama, TvType.Movie)
     override var lang = "en"

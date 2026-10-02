@@ -14,7 +14,7 @@ object VidoraResolver : Resolver {
     override val hosts = listOf("moviesapi")
 
     private val movieIdRe = Regex("/movie/(\\d+)")
-    private const val MAPI_KEY = "3a67e8866ae1d2bb9e81fe7f73315a56eb3bdf5e3e755c7554c8be6910aa6b13"
+    private val MAPI_KEY: String get() = SiteConfig.vidoraPlayerKey()
 
     override fun resolve(ctx: ResolveContext, embedUrl: String, label: String?): ResolveResult {
         if (ctx.remainingMs() <= 0) return ResolveResult.EMPTY

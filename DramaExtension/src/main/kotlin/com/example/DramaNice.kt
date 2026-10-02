@@ -19,7 +19,7 @@ import org.jsoup.nodes.Document
 class DramaNice : MainAPI() {
 
     override var name = "DramaNice"
-    override var mainUrl = "https://dramanice.boo/"
+    override var mainUrl = SiteConfig.mirror("dramanice")
     override val hasMainPage = true
     override val supportedTypes = setOf(TvType.AsianDrama)
     override var lang = "en"

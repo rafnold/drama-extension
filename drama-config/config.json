@@ -1,0 +1,22 @@
+{
+    "zoko": {"xorSeeds": ["otaku-embed-v1"]},
+    "mirrors": {
+        "dramahood": ["https://dramahood.mom"],
+        "kissasian": ["https://wwv21.kissasian.com.lv"],
+        "dramanice": ["https://dramanice.boo"],
+        "kdramain": ["https://k-drama.in"],
+        "kisskh": ["https://kisskh.or.at"]
+    },
+    "dead": {},
+    "version": 1,
+    "dramavideo": {
+        "playerJs": "https://dramavideo.se/player.js",
+        "playerHost": "https://player.dramavideo.se"
+    },
+    "vidbasic": {"aesSeeds": [{
+        "k": "94588293375053432799222445521289",
+        "iv": "5259228356829423"
+    }]},
+    "vidsync": {"api": "https://vidsync.pro/api/extraction/session"},
+    "vidora": {"playerKey": "3a67e8866ae1d2bb9e81fe7f73315a56eb3bdf5e3e755c7554c8be6910aa6b13"}
+}

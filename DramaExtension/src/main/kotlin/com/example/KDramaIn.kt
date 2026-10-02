@@ -24,7 +24,7 @@ import org.jsoup.nodes.Document
 class KDramaIn : MainAPI() {
 
     override var name = "KDrama.in"
-    override var mainUrl = "https://k-drama.in/"
+    override var mainUrl = SiteConfig.mirror("kdramain")
     override val hasMainPage = true
     override val supportedTypes = setOf(TvType.AsianDrama, TvType.Movie)
     override var lang = "en"
@@ -299,10 +299,11 @@ class KDramaIn : MainAPI() {
             val isMovie = data.contains("type=movie")
             val season = Regex("season=(\\d+)").find(data)?.groupValues?.get(1)?.toIntOrNull()
             val episode = Regex("episode=(\\d+)").find(data)?.groupValues?.get(1)?.toIntOrNull()
+            val vb = SiteConfig.vidsyncBase()
             val embedUrl = if (isMovie) {
-                "https://vidsync.pro/embed/movie/$id/"
+                "$vb/embed/movie/$id/"
             } else {
-                "https://vidsync.pro/embed/tv/$id/?season=${season ?: 1}&episode=${episode ?: 1}"
+                "$vb/embed/tv/$id/?season=${season ?: 1}&episode=${episode ?: 1}"
             }
 
             // UG-4: the single vidsync embed resolves under the shared

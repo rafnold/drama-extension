@@ -37,7 +37,7 @@ import org.jsoup.parser.Parser
 class KissAsian : MainAPI() {
 
     override var name = "KissAsian"
-    override var mainUrl = "https://wwv21.kissasian.com.lv/"
+    override var mainUrl = SiteConfig.mirror("kissasian")
     override val hasMainPage = true
     override val supportedTypes = setOf(TvType.AsianDrama, TvType.Movie)
     override var lang = "en"
@@ -61,7 +61,7 @@ class KissAsian : MainAPI() {
         private const val UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        private val REST = "https://wwv21.kissasian.com.lv/wp-json/wp/v2/"
+        private val REST = SiteConfig.mirror("kissasian") + "/wp-json/wp/v2/"
 
         private val epRe = Regex("episode-(\\d+)")
         private val bgImageRe = Regex("url\\(\\s*['\"]?([^'\")]+)['\"]?\\s*\\)")

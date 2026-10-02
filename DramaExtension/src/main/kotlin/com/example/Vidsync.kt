@@ -34,8 +34,8 @@ class VidsyncCuration(
 )
 
 object Vidsync {
-    const val BASE = "https://vidsync.pro"
-    const val API = "https://vidsync.pro/api/extraction/session"
+    val BASE: String get() = SiteConfig.vidsyncBase()
+    val API: String get() = SiteConfig.vidsyncApi()
 
     /** Reliability ranking of vidsync backend providers. 0 = junky
      *  sources (gambling-site streams, wrong-language dubs); only used

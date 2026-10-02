@@ -57,7 +57,7 @@ import org.jsoup.nodes.Document
 class Dramahood : MainAPI() {
 
     override var name = "Dramahood"
-    override var mainUrl = "https://dramahood.mom/"
+    override var mainUrl = SiteConfig.mirror("dramahood")
     override val hasMainPage = true
     override val supportedTypes = setOf(TvType.AsianDrama)
     override var lang = "en"
