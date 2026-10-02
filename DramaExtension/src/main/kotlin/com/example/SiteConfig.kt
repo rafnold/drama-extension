@@ -105,7 +105,19 @@ object SiteConfig {
         companion object {
             /** Hardcoded fallback config. The app works with these when the
              * remote config is unreachable; the remote config.json overrides
-             * any field. */
+             * any field.
+             *
+             * Any of these secrets can additionally be overridden per
+             * machine via environment variables, read by the accessors
+             * below (highest precedence: env var > remote config > the
+             * literal here). On-device (Android) no such env vars exist,
+             * so device behavior is unchanged:
+             *   VIDORA_PLAYER_KEY   Vidora x-player-key (moviesapi.to)
+             *   ZOKO_XOR_SEEDS      comma-separated zoko XOR seeds
+             *   VIDBASIC_AES_SEEDS  comma-separated "key:iv" pairs
+             *   VIDSYNC_API         vidsync.pro extraction-session URL
+             * (The TMDB token is env-var-only, `$TMDB_TOKEN`, with no
+             * literal fallback anywhere in the codebase.) */
             fun defaults(): Config = Config(
                 mirrors = mapOf(
                     "dramanice" to listOf("https://dramanice.boo"),
@@ -230,13 +242,43 @@ object SiteConfig {
     // ---- accessors used by the providers (all non-suspend) ----
 
     fun mirror(key: String): String = cfg().mirror(key)
-    fun vidsyncApi(): String = cfg().vidsyncApi
-    fun vidsyncBase(): String = cfg().vidsyncBase
+
+    /**
+     * Environment-variable override lookup. An env var, when set to a
+     * non-blank value, takes precedence over the (remote) config so a
+     * machine can pin a secret without a config push. Returns null when
+     * the variable is absent / blank.
+     */
+    private fun env(name: String): String? =
+        System.getenv(name)?.takeIf { it.isNotBlank() }
+
+    /** Comma-separated env var -> list of non-blank entries. */
+    private fun envList(name: String): List<String> =
+        env(name)?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+            ?.takeIf { it.isNotEmpty() } ?: emptyList()
+
+    /** Comma-separated env var of "key:iv" pairs. */
+    private fun envPairList(name: String): List<Pair<String, String>> =
+        env(name)?.split(',')?.mapNotNull {
+            val parts = it.split(':', limit = 2)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank())
+                parts[0].trim() to parts[1].trim()
+            else null
+        } ?: emptyList()
+
+    /** [vidsyncApi] with the `VIDSYNC_API` env override. */
+    fun vidsyncApi(): String = env("VIDSYNC_API") ?: cfg().vidsyncApi
+    fun vidsyncBase(): String = originOf(vidsyncApi())
     fun dramavideoPlayerJs(): String = cfg().dramavideoPlayerJs
     fun dramavideoPlayerHost(): String = cfg().dramavideoPlayerHost
-    fun vidoraPlayerKey(): String = cfg().vidoraPlayerKey
-    fun zokoXorSeeds(): List<String> = cfg().zokoXorSeeds
-    fun vidbasicAesSeeds(): List<Pair<String, String>> = cfg().vidbasicAesSeeds
+    /** [Config.vidoraPlayerKey] with the `VIDORA_PLAYER_KEY` env override. */
+    fun vidoraPlayerKey(): String = env("VIDORA_PLAYER_KEY") ?: cfg().vidoraPlayerKey
+    /** [Config.zokoXorSeeds] with the `ZOKO_XOR_SEEDS` env override. */
+    fun zokoXorSeeds(): List<String> =
+        envList("ZOKO_XOR_SEEDS").ifEmpty { cfg().zokoXorSeeds }
+    /** [Config.vidbasicAesSeeds] with the `VIDBASIC_AES_SEEDS` env override. */
+    fun vidbasicAesSeeds(): List<Pair<String, String>> =
+        envPairList("VIDBASIC_AES_SEEDS").ifEmpty { cfg().vidbasicAesSeeds }
     fun deadHosts(): Set<String> = cfg().dead.keys
 
     private fun configUrl(): String =

@@ -9,14 +9,33 @@ before commit).
 Status columns as work lands; keep this file as the current-session handoff
 only. Release history details live in `drama-extension-state.md` (gitignored).
 
-## Current status: **v12 building** (2026-10-02; v11 LIVE at commit `03b4d6d`, builds ref `builds`)
+## Current status: **v13 LIVE** (2026-10-02, commit `4b7c2e1`, builds ref `builds`)
 
 5 providers: DramaNice, KDrama.in, KissAsian (13 tabs), Dramahood, KissKH
-(9 tabs). v11 live `.cs3` 115,494 bytes sha256 `7438aefc…` == local build;
-`builds/plugins.json` version 11. v12 fixes the v11 empty-cards regression.
+(9 tabs). Live `.cs3` 116,716 bytes sha256 `d559b4f1…` == local build;
+`builds/plugins.json` version 13. v13 adds env-var overrides for the
+remote-config secrets (see note below); device behavior unchanged.
+v12 (commit `2da2ebf`) fixed the v11 empty-cards regression
+(KissAsian + Dramahood zero cards).
 
 Recent releases:
-- **v12** (2026-10-02): v11 regression fix — KissAsian + Dramahood rendered
+- **v13** (2026-10-02, commit `4b7c2e1`): env-var overrides for the
+  remote-config secrets. The 6 resolver/secret accessors in `SiteConfig.kt`
+  now honor per-machine environment variables (highest precedence:
+  **env var > remote config.json > hardcoded defaults**);
+  `VIDSYNC_API`, `VIDORA_PLAYER_KEY`, `ZOKO_XOR_SEEDS`,
+  `VIDBASIC_AES_SEEDS`. On Android no such env vars exist, so device behavior
+  is byte-for-byte unchanged (the accessors fall back to the config exactly
+  as before). Purpose: a machine can pin a rotated mirror/seed/key without a
+  config push, and ops can point every install at a mirror/vidsync endpoint
+  without editing the public config. Verified: harness `EnvOverrideTestKt`
+  (9/9 PASS with vars set; falls back to config when absent); extension
+  compiles green; full live gate green except the 4 vidsync-pro **curation**
+  tests, which failed only because `vidsync.pro` was unreachable from the
+  build host (SocketTimeout — network, not code: no `VIDSYNC_API` was set so
+  the curation path used the config URL exactly as v12). `grep -c REDACTED`
+  = 0; no `eyJ` (TMDB JWT) in `classes.dex`.
+- **v12** (2026-10-02, commit `2da2ebf`): v11 regression fix — KissAsian + Dramahood rendered
   only category tabs, zero cards on device. Root cause (found by diffing
   v10→v11, `git diff 1f7c69a 03b4d6d`): v11 moved `mainUrl`s to
   `SiteConfig.mirror()`, which returns the config value verbatim — the
