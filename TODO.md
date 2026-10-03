@@ -231,6 +231,97 @@ native identity solves. So in practice a usable token for the current
 to the *solving IP*. Everything above shares one egress IP. A token solved on
 the build host will very likely be rejected on a phone's mobile network. Needs
 one check from the user's device before any token-shipping design is built.
+-> **RESOLVED, no token needed.** See below: the host app's own
+`CloudflareKiller` solves the challenge on-device. No token is shipped.
+
+### The fix: `CloudflareKiller` (WebView), not a token (v15, 2026-10-03)
+
+`com.lagradost.cloudstream3.network.CloudflareKiller` ships with the CloudStream
+library (verified present in `cloudstream.jar` alongside `WebViewResolver`). It
+is an OkHttp `Interceptor` built for exactly this: on a 403/503 + `Server:
+cloudflare` response it loads the URL in a **hidden Android WebView**, lets
+Cloudflare's JS run natively, pulls `cf_clearance` out of `CookieManager`, and
+replays it on later OkHttp requests via `getCookieHeaders()`, which attaches
+**the WebView's own UA** alongside the cookies. Same IP, same browser, native
+identity -> satisfies the binding with no UA spoofing. Production precedent:
+FaselHD and other extensions use `app.get(url, interceptor = cfKiller)` plus
+`usesWebView = true`.
+
+Also note `NiceResponse` has no `.ok` — it is `isSuccessful` / `.code` (the
+build caught this). And NiceHttp's `Requests.get` does take an `okhttp3.
+Interceptor` (verified via `javap` on NiceHttp-0.4.11.jar), so `Http.get` gained
+an optional `interceptor` param.
+
+### k-drama.in watch page: the 7 servers (user-reported: only server 6 works)
+
+Extracted from the page's own `switchServer(n)` (a real JS function, not
+markup):
+
+| # | label | URL built |
+|---|-------|-----------|
+| 1 | Multi Lang | `vidsync.pro/embed/{movie\|tv}/<id>…` |
+| 2 | Multi | `k-drama.in/13.php/<id>/<s>/<e>` |
+| 3 | — | `k-drama.in/2.php/<id>/<s>/<e>` |
+| 4 | Vidzee | `player.vidzee.wtf/embed/movie/<id>` ← **hardcodes `movie`, drops s/e** |
+| 5 | Zxcstream | `player.zxcstream.xyz/player/movie/<id>` ← **same bug** |
+| 6 | **YOY** | `k-drama.in/yoy4.php?id=<id>&s=<s>&e=<e>` |
+| 7 | Hindi | `k-drama.in/player.php?tmdb=<id>&season=<s>&episode=<e>` |
+
+Servers 1–3, 6–7 branch on `type === 'movie'` and pass season/episode; 4 and 5
+do not, so for a TV episode they request a *movie* by the same TMDB id. Verified:
+server 4 as shipped resolves to "The Eleventh Aggression"; with
+`/embed/tv/290699/1/1` it resolves to "Shadow Punisher S1E1". The user reports
+server 4 "unavailable" and server 5 "a complete other movie" — both are this
+same site-side bug (per user instruction the cause is not being pursued further;
+the site gets it wrong). Independently, vidzee's API returns `{"languages":[]}`
+and its six source calls all fail for this title, so it has no sources anyway.
+
+### Server 6 chain, verified end to end (id=290699 s1e1, "Shadow Punisher" S1E1)
+
+```
+k-drama.in/yoy4.php?id=290699&s=1&e=1     (CF-gated, CloudflareKiller)
+  -> https://kisskh.megaplay.su/kisskh/225695   (single iframe proxy)
+     -> m3u8  kisskh.megaplay.su/vid/…/Ep1.v489_index.m3u8
+     -> .srt  kisskh.megaplay.su/sub/…/<hash>.{en,ar,id,km,ms,nl}.srt
+```
+
+**Two different referer gates, both required** (this is the whole subtlety):
+- the **proxy page** answers `403 "Embed Only"` with no Referer, `200 "KissKH
+  Player"` with *any* `k-drama.in` page referer;
+- the **m3u8 and the .srt** answer `403 {"error":"forbidden"}` for a k-drama.in
+  referer *or* none, and `200` only for a `kisskh.megaplay.su` **self-referer**.
+  Media segments then fetch with or without it — but the *playlist* must use the
+  self-referer, so the emitted `ExtractorLink` must carry it.
+
+Measured: playlist `200` / 134,510 B; media segment `200` / 400,435,488 B
+(a real video); English `.srt` `200` / 51,960 B with correct SRT timing. 6
+subtitle languages offered.
+
+Implemented as `Yoy4Resolver.kt` and wired into `loadLinks` as a **fallback
+only** when the primary vidsync embed yields nothing (vidsync was returning 521
+on 2026-10-03), per AI_RULES §5 — the happy path is unchanged. It probes the
+playlist once so a dead link reports as "no sources" rather than failing at
+playback time.
+
+### Local build restored on this host (2026-10-03)
+
+The `workspace/` tree the user copied to `~/Desktop/workspace/` unblocked
+local verification. `cp.txt` had absolute `/workspace/...` paths and was
+rewritten to `~/Desktop/workspace/...`. Then:
+
+1. `cd ~/Desktop/workspace/tmp-artifacts/plugin-fresh && ./gradlew publishToMavenLocal`
+   (the `com.lagradost.cloudstream3:gradle:local-SNAPSHOT` the root build needs)
+   -> BUILD SUCCESSFUL, writes to `~/.m2`.
+2. `echo "sdk.dir=$HOME/Desktop/workspace/android-sdk" > local.properties`
+   (**gitignored** — do not commit it; it is a machine-local path).
+3. `./gradlew :DramaExtension:compileReleaseKotlin` and `./gradlew make makePluginsJson`.
+
+`CloudflareKiller` and `WebViewResolver` are present in the harness's
+`cloudstream.jar`, so provider copies can be synced into
+`tmp-artifacts/harness-proj/src/main/kotlin/` verbatim and the gate runs as
+usual. v15 build: cs3 135,648 B; dex contains `yoy4.php` +
+`kisskh.megaplay.su` + `CloudflareKiller`; `grep REDACTED` = 0; no `eyJ` TMDB
+token in the dex.
 
 ## Next steps
 
