@@ -35,22 +35,19 @@ import okhttp3.ResponseBody.Companion.toResponseBody
  * result is a challenge, we resolve it out-of-band through FlareSolverr and
  * return that HTML as a synthesised 200. No second `proceed`.
  *
- * ## Why that also removes the cookie-replay problem
+ * ## Why that also makes the warm path cheap
  *
- * Returning FlareSolverr's HTML directly means each provider call is
- * self-contained - no stored cookie, no replay, no dependence on the caller
- * cooperating. That sidesteps the IP-binding caveat for catalog and detail
- * pages entirely, because the bytes never have to validate against Cloudflare
- * from the device at all. Streams, playlists and subtitles are fetched by the
- * resolvers directly and are unaffected by Cloudflare (different hosts).
+ * Returning FlareSolverr's HTML satisfies the current request outright, and
+ * the cookie + UA it hands back are cached per host so later requests are
+ * *replayed* with them before `proceed` and answered directly by Cloudflare.
+ * Only a genuinely uncached host pays the ~12 s solve. On this LAN the replay
+ * validates because the phone and the FlareSolverr box share one public IP
+ * (178.84.195.10, verified); off-LAN it would not, and the code degrades
+ * gracefully - the replay is simply challenged again and we fall back to
+ * re-solving rather than failing.
  *
- * ## Caveat: `cf_clearance` is IP-bound (matters only for replay)
- *
- * Cloudflare binds the cookie to the IP and UA that solved it. On this LAN
- * that holds anyway (verified: the phone and the FlareSolverr box both report
- * public IP 178.84.195.10), so a future replay-based fast path would work at
- * home. Off-LAN it would not - which is another reason the HTML-return path is
- * the primary one.
+ * Streams, playlists and subtitles are fetched by the resolvers directly and
+ * are on other hosts, so they were never Cloudflare-gated.
  *
  * ## Usage
  *
@@ -73,31 +70,74 @@ class FlareSolverrInterceptor(
 
     private val solver = baseUrl?.takeIf { it.isNotBlank() }?.let { FlareSolverr(it) }
 
+    /**
+     * Solved clearance per host: cookie header -> matching UA.
+     *
+     * Cloudflare binds `cf_clearance` to the solving IP *and* UA, and the
+     * binding is long-lived (the cookie's own expiry is ~1 year), so one solve
+     * serves every later request. Measured on the user's LAN: a cold FlareSolverr
+     * solve is ~11.6 s, while replaying the cookie answers a catalog page in
+     * 0.13 s and a detail page (25 episode links) in 0.79 s. That is the
+     * difference between every tab click costing 12 s and costing nothing.
+     *
+     * Because the replay is a normal request built before `proceed`, the
+     * one-proceed-per-chain contract still holds.
+     */
+    private val cleared = HashMap<String, Pair<String, String>>()
+    private val lock = Any()
+
     override fun intercept(chain: Interceptor.Chain): Response {
-        val request = chain.request()
+        val original = chain.request()
+        val host = original.url.host
+
+        // Warm path: if we already hold this host's clearance, send it up front
+        // so the request is answered directly and Cloudflare never challenges.
+        val cached = synchronized(lock) { cleared[host] }
+        val warm = if (cached != null) withClearance(original, cached.first, cached.second) else null
 
         // The one and only proceed() for this chain.
-        val response = chain.proceed(request)
+        val response = if (warm != null) chain.proceed(warm) else chain.proceed(original)
         if (!isChallenge(response)) return response
 
         response.close()
+
+        // Stale cache (Cloudflare rotated the clearance): drop it so the next
+        // request re-solves cleanly rather than carrying a dead cookie.
+        synchronized(lock) { if (cached != null && cleared[host] === cached) cleared.remove(host) }
 
         val solver = this.solver
         if (solver == null) {
             // Not configured: hand back an empty document so the caller
             // renders an empty tab rather than throwing.
-            return emptyChallenge(request)
+            return emptyChallenge(original)
         }
 
-        val cleared = solver.fetchCleared(request.url.toString())
-        if (cleared == null || cleared.html.isBlank()) {
-            return emptyChallenge(request)
+        val result = solver.fetchCleared(original.url.toString())
+        if (result == null || result.html.isBlank()) {
+            return emptyChallenge(original)
+        }
+
+        result.cookie?.takeIf { it.isNotBlank() }?.let { c ->
+            result.userAgent?.takeIf { it.isNotBlank() }?.let { ua ->
+                synchronized(lock) { cleared[host] = c to ua }
+            }
         }
 
         // FlareSolverr already returned the real page; synthesise a normal 200
         // so the caller's Jsoup parsing sees the cleared document.
-        return html(request, cleared.html, "OK (via FlareSolverr)")
+        return html(original, result.html, "OK (via FlareSolverr)")
     }
+
+    /** Copy [request] with the solved Cookie and its matching User-Agent. */
+    private fun withClearance(
+        request: okhttp3.Request,
+        cookie: String,
+        ua: String,
+    ): okhttp3.Request =
+        request.newBuilder()
+            .header("Cookie", cookie)
+            .header("User-Agent", ua)
+            .build()
 
     private fun isChallenge(response: Response): Boolean =
         response.header("Server") in CLOUDFLARE_SERVERS &&
