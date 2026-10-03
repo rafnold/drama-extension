@@ -356,6 +356,19 @@ class KDramaIn : MainAPI() {
             for ((_, res) in results) {
                 if (res.ok) added = emitResult(res, name, UA, subtitleCallback, callback) || added
             }
+
+            // Fallback discipline (AI_RULES §5): vidsync is intermittent
+            // (521/unreachable seen 2026-10-03), so when it yields nothing
+            // playable fall through to watch-page server 6 (YOY ->
+            // kisskh.megaplay.su), which carries English subtitles and was
+            // verified end to end. Runs only when the primary produced
+            // nothing, so it costs nothing on the happy path.
+            if (!added) {
+                val yoy = Yoy4Resolver().resolve(data)
+                if (yoy.ok) {
+                    added = emitResult(yoy, name, UA, subtitleCallback, callback)
+                }
+            }
             added
         } catch (_: Throwable) {
             false

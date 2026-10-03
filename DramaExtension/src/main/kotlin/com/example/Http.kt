@@ -68,6 +68,12 @@ object Http {
     /**
      * Blocking GET via the app's shared NiceHttp client (same cookies /
      * client config as the rest of the app).
+     *
+     * [interceptor] is passed straight through to NiceHttp's `Requests.get`
+     * (verified against NiceHttp-0.4.11.jar: `get(url, headers, referer,
+     * params, data, cacheTime, cacheTimeUnit, timeout, interceptor, …)`).
+     * KDrama.in uses this to run CloudflareKiller, which solves the site's
+     * managed challenge in a hidden WebView.
      */
     fun get(
         url: String,
@@ -75,12 +81,14 @@ object Http {
         params: Map<String, String> = emptyMap(),
         referer: String? = null,
         timeoutMs: Long = 15_000L,
+        interceptor: okhttp3.Interceptor? = null,
     ): NiceResponse = blocking(timeoutMs) {
         app.get(
             url,
             headers = headers,
             params = params,
             referer = referer,
+            interceptor = interceptor,
         )
     }
 }
