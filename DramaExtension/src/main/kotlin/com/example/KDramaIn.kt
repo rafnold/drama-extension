@@ -83,20 +83,26 @@ class KDramaIn : MainAPI() {
         private val tmdbLock = Any()
 
         /**
-         * One shared [CloudflareKiller] for the whole provider.
+         * One shared [SerializedCloudflareKiller] for the whole provider.
          *
-         * It caches the solved `cf_clearance` per host in `savedCookies`,
-         * so a fresh instance per request would throw that away and re-run
-         * the WebView challenge on every call. Created lazily on first use
-         * because the constructor touches `CookieManager`, which needs a
-         * live Android context.
+         * Wrapped rather than used directly: CloudStream fires every catalog
+         * tab in parallel, and a bare CloudflareKiller has no internal lock,
+         * so N concurrent cold requests each launch their own hidden WebView
+         * and all of them time out (see SerializedCloudflareKiller for the
+         * device-logcat evidence). The wrapper serializes only the one-time
+         * solve; steady-state requests take an unsynchronised fast path.
+         *
+         * Created lazily on first use because CloudflareKiller's constructor
+         * touches CookieManager, which needs a live Android context.
          */
         @Volatile
-        private var cfKillerSingleton: CloudflareKiller? = null
+        private var cfKillerSingleton: SerializedCloudflareKiller? = null
 
         @Synchronized
-        private fun cfKillerSingleton(): CloudflareKiller =
-            cfKillerSingleton ?: CloudflareKiller().also { cfKillerSingleton = it }
+        private fun cfKillerSingleton(): SerializedCloudflareKiller =
+            cfKillerSingleton
+                ?: SerializedCloudflareKiller(CloudflareKiller())
+                    .also { cfKillerSingleton = it }
 
     }
 
