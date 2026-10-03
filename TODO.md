@@ -97,29 +97,57 @@ responds, so the zone itself is behind the challenge, not one route.
   nothing in `KDramaIn.kt`; its last change is v12 (`2da2ebf`). The mirror value
   has been `https://k-drama.in` in every release since v11 (v11 config.json,
   version 1) and hardcoded pre-v11.
-- Not a header/UA problem: full Chrome-131 desktop header set (`sec-ch-ua*`,
-  `Sec-Fetch-*`, `Accept-Language`, `--compressed`), a mobile-Chrome UA, and a
-  bare `curl/8.0` UA all get 403. A **real headed browser** (Chromium via
-  browser-use) also never clears the challenge — 60 s of polling, title stays
-  "Just a moment...", 0 links. Same via `r.jina.ai` (proxy hits the challenge
-  too).
+- **Not a header/UA problem** — proven. Chrome 155's EXACT captured request
+  headers (`sec-ch-ua*` full set incl. `full-version-list`, `sec-ch-ua-platform:
+  "Linux"`, `Upgrade-Insecure-Requests`) replayed through curl still return 403.
+  A mobile-Chrome UA and a bare `curl/8.0` UA likewise. So the signal
+  Cloudflare keys on is NOT in the header set.
+- **Not IP-based — proven, and the site is UP.** From this same NL egress IP
+  (`/cdn-cgi/trace` → `ip=178.84.195.10`), a REAL headed
+  `google-chrome-unstable` (155.0.8040.2, `navigator.webdriver=false`,
+  `navigator.plugins.length=5`) over CDP loads `dramas.php?type=korean` on the
+  FIRST request with no challenge: 20/20 cards, `a[href*=detail.php]` each with
+  an `h3` name + an `image.tmdb.org` poster + an `i.fa-star` score; detail
+  `detail.php?id=2734&type=tv` → h1 "Law & Order: Special Victims Unit",
+  og:image present, 23 `watch.php?id=…&season=1&episode=N&type=tv` links. The
+  provider's selectors are therefore still correct and unchanged.
+  Cookie set by the working browser: **`g_state` only** — NO `cf_clearance`,
+  NO `__cf_bm`.
+- **Conclusion: the block is on the HTTP client, not the IP and not the
+  headers.** The difference between the passing headed Chrome and the failing
+  curl/harness is transport/TLS-and-HTTP-2 fingerprint (JA3/JA4 + h2 SETTINGS
+  + header ORDER — Cloudflare's bot score reads all three; curl and the
+  NiceHttp/OkHttp client both look non-browser, and header ORDER cannot be
+  faked by curl's `-H` list). A stale `cf_clearance`/`__cf_bm` cookie does NOT
+  help: replaying the user's cookie via curl → 403, and injected into real
+  Chromium via CDP `Network.setCookie` (verified present in `document.cookie`)
+  → still "Just a moment...". Note browser-use's bundled Chromium is
+  `HeadlessChrome` with `navigator.webdriver=true` — it also fails, so
+  "use a real browser" must mean *headed, non-automated*, not browser-use.
 - No mirror exists: `kdrama.in` is an unrelated squatted domain; `kdrama.tv` is
   a for-sale A-grade domain; `kdrama.la`, `kdrama1.in`, `kdramain.net`,
   `kdramain.com`, `k-drama.com`, `k-drama.tv`, `kdrama.to` all NXDOMAIN/000. No
   origin subdomains (`origin|cdn|static|img|mail|staging|dev.beta.k-drama.in`
   do not resolve); the cert is a plain CF-managed `*.k-drama.in`.
-- Untested hypothesis (needs the user's own network): our egress IP is a
-  datacenter IP in NL (`/cdn-cgi/trace` → `ip=178.84.195.10`, `loc=NL`,
-  `colo=AMS`). If the block is IP-reputation based, the provider will still work
-  on a real device. **Ask the user to run this on the device's network** (or a
-  home IP) before touching the code:
-  `curl -sI https://k-drama.in/dramas.php | head -1`  → `HTTP/2 200` = fine,
-  `HTTP/2 403` = the site blocks everyone and the provider needs a new source.
 
 **Lever when a mirror appears (no code needed):** `drama-config/config.json`
 `"kdramain": ["<new mirror>", "https://k-drama.in"]` — `Config.mirror()` picks
 the first non-dead entry, so prepend; add `k-drama.in` to `"dead"` only after a
 mirror is verified working.
+
+**Known limitation to document in the v15 release note (not fixable from the
+extension):** k-drama.in is Cloudflare-challenged for programmatic clients, so
+the harness will keep reporting KDrama.in FAIL from this host. Judge the gate on
+the other 5 providers, or run KDrama.in acceptance through the headed-Chrome
+CDP capture (see artifact below) instead of the JVM harness.
+
+**Reproduction artifacts (this host):** `~/.hermes/cache/scratch/cprof` (headed
+Chrome profile, `--remote-debugging-port=9223`), `cdp_drive.py` (navigate +
+poll + dump `outerHTML`), `cdp_headers.py` (capture the live request headers),
+`kd_real.html` (20 cards), `kd_detail.html` (detail + 23 episode links),
+`kd_headers.txt`. The venv with `websockets` lives at
+`~/.hermes/installs/*/environments/*/venv/bin/python` (system python3 has no
+`websockets`).
 
 ## Next steps
 
