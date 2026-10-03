@@ -149,6 +149,40 @@ poll + dump `outerHTML`), `cdp_headers.py` (capture the live request headers),
 `~/.hermes/installs/*/environments/*/venv/bin/python` (system python3 has no
 `websockets`).
 
+### Playwright MCP is the sanctioned way to reach this site (2026-10-03)
+
+Playwright MCP is registered in `~/.hermes/config.yaml` as `mcp_servers.playwright`,
+pointing at `/usr/bin/google-chrome-unstable` with `--browser chrome
+--no-sandbox --user-agent <plain Chrome 155 UA> --init-script
+~/.hermes/mcp-assets/playwright/stealth.js --output-dir
+~/.hermes/cache/scratch/pw-out --timeout-navigation 90000`. `hermes mcp test
+playwright` → connected, 25 tools.
+
+**The init script is load-bearing.** Playwright sets `navigator.webdriver=true`
+by default; with that, k-drama.in returns "Just a moment..." / 0 cards. The
+script masks `webdriver`, sets `languages`/`plugins`, and adds `window.chrome`.
+Do not drop it from the args. Same reason browser-use's bundled `HeadlessChrome`
+always fails while a plainly-launched real Chrome succeeds.
+
+Verified live through `mcp_playwright_browser_*` (full chain):
+- catalog `dramas.php?type=korean` → **20/20 complete cards**, every one with an
+  `h3` name, an `image.tmdb.org` poster and an `i.fa-star` score. First hit
+  returned HTTP 403 + "Just a moment...", then the challenge **cleared itself in
+  ~8 s** with no click — so allow one wait after a 403 rather than declaring
+  failure.
+- detail `detail.php?id=2734&type=tv` → h1 "Law & Order: Special Victims Unit",
+  `og:image` present, **23** `watch.php?id=2734&season=1&episode=N&type=tv`
+  links. Every selector in `KDramaIn.kt` is still correct.
+- watch page → 2 iframes, the real one being
+  `https://vidsync.pro/embed/tv/2734/1/1?accent=…&watermark=…` (exactly the
+  vidsync embed `loadLinks` already targets).
+- **vidsync.pro itself is down right now: HTTP 521 "Web server is down"**
+  (3/3 curl attempts; `/api/extraction/session` also unreachable, SocketTimeout).
+  So KDrama.in playback is blocked one hop further out than the Cloudflare
+  issue — that is a separate, upstream outage and matches the 4 vidsync-pro
+  curation failures already noted in the v13 release note. Nothing in the
+  extension needs changing for it.
+
 ## Next steps
 
 1. **User-side verification of v9** (auto-updates in-app at app start, repo
