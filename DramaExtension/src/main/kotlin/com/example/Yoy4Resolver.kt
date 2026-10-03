@@ -170,18 +170,13 @@ class Yoy4Resolver {
     }
 
     /**
-     * Shared Cloudflare interceptor for the yoy4 proxy fetch.
-     *
-     * Wrapped in [SerializedCloudflareKiller] for the same reason as
-     * KDramaIn: a bare CloudflareKiller lets every concurrent cold request
-     * spawn its own WebView. Typed as the [okhttp3.Interceptor] interface
-     * because the wrapper is a decorator, not a subclass.
+     * Shared Cloudflare interceptor for the yoy4 proxy fetch, same
+     * long-timeout solver as the catalog fetches.
      */
     @Volatile
     private var killerSingleton: okhttp3.Interceptor? = null
 
     @Synchronized
     private fun killer(): okhttp3.Interceptor =
-        killerSingleton ?: SerializedCloudflareKiller(CloudflareKiller())
-            .also { killerSingleton = it }
+        killerSingleton ?: LongTimeoutCloudflareKiller().also { killerSingleton = it }
 }

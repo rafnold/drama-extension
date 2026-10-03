@@ -83,26 +83,26 @@ class KDramaIn : MainAPI() {
         private val tmdbLock = Any()
 
         /**
-         * One shared [SerializedCloudflareKiller] for the whole provider.
+         * One shared [LongTimeoutCloudflareKiller] for the whole provider.
          *
-         * Wrapped rather than used directly: CloudStream fires every catalog
-         * tab in parallel, and a bare CloudflareKiller has no internal lock,
-         * so N concurrent cold requests each launch their own hidden WebView
-         * and all of them time out (see SerializedCloudflareKiller for the
-         * device-logcat evidence). The wrapper serializes only the one-time
-         * solve; steady-state requests take an unsynchronised fast path.
+         * Replaces CloudflareKiller for k-drama.in: that class is hard-capped
+         * at WebViewResolver's 60 s default, and on the device the challenge
+         * ran out of time every attempt (logcat 2026-10-03: Turnstile loading,
+         * then "Web-view timeout after 60s" + "Destroyed webview"). This one
+         * passes a longer budget to WebViewResolver and elects a single solver
+         * per host so the host's parallel catalog fetches do not each spawn
+         * their own WebView.
          *
-         * Created lazily on first use because CloudflareKiller's constructor
-         * touches CookieManager, which needs a live Android context.
+         * Created lazily on first use because WebViewResolver's construction
+         * and the solve both need a live Android context.
          */
         @Volatile
-        private var cfKillerSingleton: SerializedCloudflareKiller? = null
+        private var cfKillerSingleton: LongTimeoutCloudflareKiller? = null
 
         @Synchronized
-        private fun cfKillerSingleton(): SerializedCloudflareKiller =
+        private fun cfKillerSingleton(): LongTimeoutCloudflareKiller =
             cfKillerSingleton
-                ?: SerializedCloudflareKiller(CloudflareKiller())
-                    .also { cfKillerSingleton = it }
+                ?: LongTimeoutCloudflareKiller().also { cfKillerSingleton = it }
 
     }
 
