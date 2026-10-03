@@ -19,6 +19,7 @@ v12 (commit `2da2ebf`) fixed the v11 empty-cards regression
 (KissAsian + Dramahood zero cards).
 
 Recent releases:
+- **v14** (2026-10-03, commit `<pending>`): new **Primeshows** provider (`primeshows.org`). Catalog/detail/episodes via the TMDB proxy (`/api/proxy/tmdb`), watch route `/watch/{movie|tv}/{tmdbId}`, sources via `api.wecollege.net` seed→`/miami/sources` + the ported `VidyDecrypt` (base64url ct → XOR PRNG keystream → `"mvm1"` magic → JSON `sources[]` → m3u8 with `referer=https://www.vidy.st/`). Fixes that unblocked it in the harness: (1) `VidyDecrypt.base64Decode` padding `(-len)%4` → `(4-len%4)%4` (Kotlin `%` keeps the sign, so a ct length %4∈{2,3} decoded empty → flaky magic mismatch, since ct length is non-deterministic); (2) harness `SiteConfig.kt` was missing the primeshows mirror → relative proxy URL; (3) standalone decrypt test used the wrong seed host and parsed the ct as JSON. Harness gate GREEN for Primeshows (catalog 20 cards, movie+TV load, TV loadLinks=3 links, decrypt PASS, live capture `Digger` e2eLinks=3). Remaining failure is **KDrama.in only** — pre-existing, blocked by a Cloudflare "Just a moment..." bot challenge (HTTP 403) on the harness HTTP client, unrelated to Primeshows and failing identically before these changes.
 - **v13** (2026-10-02, commit `05add09`): env-var overrides for the
   remote-config secrets. The 6 resolver/secret accessors in `SiteConfig.kt`
   now honor per-machine environment variables (highest precedence:

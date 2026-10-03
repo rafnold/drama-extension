@@ -125,6 +125,7 @@ object SiteConfig {
                     "dramahood" to listOf("https://dramahood.mom"),
                     "kissasian" to listOf("https://wwv21.kissasian.com.lv"),
                     "kdramain" to listOf("https://k-drama.in"),
+                    "primeshows" to listOf("https://primeshows.org"),
                 ),
                 vidsyncApi = "https://vidsync.pro/api/extraction/session",
                 dramavideoPlayerJs = "https://dramavideo.se/player.js",
@@ -148,7 +149,7 @@ object SiteConfig {
                 val d = defaults()
                 val mirrors = LinkedHashMap<String, List<String>>()
                 val m = obj.optJSONObject("mirrors")
-                for (key in listOf("dramanice", "kisskh", "dramahood", "kissasian", "kdramain")) {
+                for (key in listOf("dramanice", "kisskh", "dramahood", "kissasian", "kdramain", "primeshows")) {
                     val arr = m?.optJSONArray(key)
                     val list = ArrayList<String>()
                     if (arr != null) {
