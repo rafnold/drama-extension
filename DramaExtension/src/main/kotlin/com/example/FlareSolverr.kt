@@ -45,6 +45,12 @@ class FlareSolverr(
 
         /** Never let a hung FlareSolverr stall a provider indefinitely. */
         private const val REQUEST_TIMEOUT_MS = 150_000L
+
+        /**
+         * Session id used for hosts served *through* FlareSolverr rather than
+         * by cookie replay. See [fetchClearedInSession].
+         */
+        const val DEFAULT_SESSION = "drama-extension"
     }
 
     /**
@@ -60,6 +66,33 @@ class FlareSolverr(
     )
 
     /**
+     * Creates (or refreshes) a persistent FlareSolverr session named [session].
+     *
+     * A session keeps one browser alive server-side with its cookies and
+     * clearance, so follow-up `request.get` calls carrying the same `session`
+     * skip the challenge entirely - measured at ~0.8 s versus ~11.6 s for a
+     * stateless solve. Best-effort: a failure here is not fatal, the next
+     * `fetchCleared(session = ...)` still works (FlareSolverr auto-creates).
+     */
+    fun createSession(session: String): Boolean {
+        val payload = JSONObject().apply {
+            put("cmd", "sessions.create")
+            put("session", session)
+            put("maxTimeout", MAX_TIMEOUT_MS)
+        }
+        return try {
+            val body = Http.postJson(
+                baseUrl.trimEnd('/') + "/v1",
+                payload.toString(),
+                20_000L,
+            ).use { it.body?.string().orEmpty() }
+            JSONObject(body).optString("status") == "ok"
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
      * Fetches [url] through FlareSolverr.
      *
      * @param referer optional Referer to send to the site.
@@ -71,12 +104,14 @@ class FlareSolverr(
         url: String,
         referer: String? = null,
         headers: Map<String, String> = emptyMap(),
+        session: String? = null,
     ): Cleared? {
         val endpoint = baseUrl.trimEnd('/') + "/v1"
         val payload = JSONObject().apply {
             put("cmd", "request.get")
             put("url", url)
             put("maxTimeout", MAX_TIMEOUT_MS)
+            if (!session.isNullOrBlank()) put("session", session)
             if (referer != null) put("referer", referer)
             if (headers.isNotEmpty()) put("headers", JSONObject(headers))
         }

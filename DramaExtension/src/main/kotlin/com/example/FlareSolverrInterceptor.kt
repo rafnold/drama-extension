@@ -86,6 +86,30 @@ class FlareSolverrInterceptor(
     private val cleared = HashMap<String, Pair<String, String>>()
     private val lock = Any()
 
+    /**
+     * FlareSolverr session kept alive for the "device is on a different egress
+     * IP than FlareSolverr" case.
+     *
+     * A replayed `cf_clearance` only validates from the IP that solved it, so
+     * off the shared LAN every request would re-solve from scratch (~11.6 s
+     * each). Holding one persistent session means FlareSolverr keeps its own
+     * browser and clearance alive server-side, and subsequent fetches are
+     * answered in ~0.8 s ("Challenge not detected!") from *its* IP - which
+     * sidesteps IP binding entirely, since the bytes never have to validate
+     * from the phone.
+     */
+    @Volatile
+    private var sessionEnsured = false
+
+    private fun ensureSession(solver: FlareSolverr) {
+        if (sessionEnsured) return
+        synchronized(lock) {
+            if (sessionEnsured) return
+            solver.createSession(FlareSolverr.DEFAULT_SESSION)
+            sessionEnsured = true
+        }
+    }
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val original = chain.request()
         val host = original.url.host
@@ -101,9 +125,17 @@ class FlareSolverrInterceptor(
 
         response.close()
 
-        // Stale cache (Cloudflare rotated the clearance): drop it so the next
-        // request re-solves cleanly rather than carrying a dead cookie.
-        synchronized(lock) { if (cached != null && cleared[host] === cached) cleared.remove(host) }
+        // Stale cache: either Cloudflare rotated the clearance, or this
+        // device's egress IP differs from the solving one (off the shared LAN)
+        // so the replay can never validate. Drop it either way.
+        val hadCache = synchronized(lock) {
+            if (cached != null && cleared[host] === cached) {
+                cleared.remove(host)
+                true
+            } else {
+                cached != null
+            }
+        }
 
         val solver = this.solver
         if (solver == null) {
@@ -112,7 +144,14 @@ class FlareSolverrInterceptor(
             return emptyChallenge(original)
         }
 
-        val result = solver.fetchCleared(original.url.toString())
+        // A rejected replay means replay is useless for this device, so go
+        // through FlareSolverr's persistent session instead of paying a fresh
+        // ~11.6 s solve on every single request.
+        val result = if (hadCache) {
+            fetchViaSession(solver, original) ?: solver.fetchCleared(original.url.toString())
+        } else {
+            solver.fetchCleared(original.url.toString())
+        }
         if (result == null || result.html.isBlank()) {
             return emptyChallenge(original)
         }
@@ -126,6 +165,27 @@ class FlareSolverrInterceptor(
         // FlareSolverr already returned the real page; synthesise a normal 200
         // so the caller's Jsoup parsing sees the cleared document.
         return html(original, result.html, "OK (via FlareSolverr)")
+    }
+
+    /**
+     * Fetches [url] through FlareSolverr's own persistent session.
+     *
+     * Used when a replay was *rejected*, which in practice means this device's
+     * egress IP differs from the one that solved the clearance (i.e. off the
+     * shared LAN). Re-solving statelessly would cost ~11.6 s every time; inside
+     * a long-lived session FlareSolverr reuses its browser and answers in
+     * ~0.8 s, because the fetch originates from *its* IP and so is not subject
+     * to the caller's IP binding at all.
+     */
+    private fun fetchViaSession(
+        solver: FlareSolverr,
+        request: okhttp3.Request,
+    ): FlareSolverr.Cleared? {
+        ensureSession(solver)
+        return solver.fetchCleared(
+            request.url.toString(),
+            session = FlareSolverr.DEFAULT_SESSION,
+        )
     }
 
     /** Copy [request] with the solved Cookie and its matching User-Agent. */
