@@ -82,7 +82,8 @@ class FlareSolverr(
         }
 
         val body = try {
-            Http.postJson(endpoint, payload.toString(), REQUEST_TIMEOUT_MS).text
+            Http.postJson(endpoint, payload.toString(), REQUEST_TIMEOUT_MS)
+                .use { it.body?.string().orEmpty() }
         } catch (_: Throwable) {
             return null
         }

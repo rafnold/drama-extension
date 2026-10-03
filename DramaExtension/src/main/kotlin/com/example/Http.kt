@@ -94,24 +94,48 @@ object Http {
     }
 
     /**
-     * Blocking POST with a JSON body via the same shared NiceHttp client.
+     * Blocking POST with a JSON body, on a **dedicated** OkHttp client.
      *
-     * Used by the FlareSolverr client, whose `/v1` API is a JSON POST. The
-     * response is parsed as text by the caller (FlareSolverr always returns
-     * JSON, so there is no benefit to NiceHttp's `parsed()` here).
+     * Used by the FlareSolverr client, whose `/v1` API is a JSON POST.
+     *
+     * Deliberately not `app.post`: [FlareSolverrInterceptor] runs *inside* an
+     * OkHttp interceptor, i.e. already on a dispatcher thread of the shared
+     * client, and issuing another call on that same client from in there both
+     * risks starving its pool and risks re-entering this interceptor. A
+     * separate one-shot client avoids both, and keeps the Cloudflare bypass
+     * from ever being applied to FlareSolverr's own address.
+     *
+     * Returns the raw OkHttp response; the caller only ever needs the body
+     * text (FlareSolverr always answers JSON), so NiceHttp's NiceResponse
+     * wrapper and its ResponseParser are unnecessary here.
+     *
+     * [timeoutMs] is passed to OkHttp explicitly - FlareSolverr may legitimately
+     * spend ~120 s clearing a challenge, and NiceHttp's default is far shorter
+     * (observed on device as `SocketTimeoutException` thrown out of
+     * `FlareSolverrInterceptor.intercept`).
      */
     fun postJson(
         url: String,
         json: String,
         timeoutMs: Long = 15_000L,
-    ): NiceResponse = blocking(timeoutMs) {
-        app.post(
-            url,
-            headers = mapOf("Content-Type" to "application/json"),
-            requestBody = okhttp3.RequestBody.create(
-                "application/json".toMediaTypeOrNull(),
-                json,
-            ),
-        )
+    ): okhttp3.Response {
+        val client = okhttp3.OkHttpClient.Builder()
+            .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .post(
+                okhttp3.RequestBody.create(
+                    "application/json".toMediaTypeOrNull(),
+                    json,
+                )
+            )
+            .header("Content-Type", "application/json")
+            .build()
+        return client.newCall(request).execute()
     }
 }
