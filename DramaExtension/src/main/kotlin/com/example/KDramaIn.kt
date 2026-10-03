@@ -1,6 +1,7 @@
 package com.example
 
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import org.json.JSONObject
 import org.jsoup.nodes.Document
@@ -28,6 +29,25 @@ class KDramaIn : MainAPI() {
     override val hasMainPage = true
     override val supportedTypes = setOf(TvType.AsianDrama, TvType.Movie)
     override var lang = "en"
+
+    /**
+     * k-drama.in sits behind a Cloudflare managed challenge that rejects
+     * every non-browser client (verified 2026-10-03: plain OkHttp/NiceHttp
+     * and curl get `403 cf-mitigated: challenge` on every path, including
+     * /robots.txt, while a real browser on the same IP gets the page).
+     *
+     * `CloudflareKiller` solves it the supported way: on a challenge it
+     * loads the URL in a hidden Android WebView so Cloudflare's JS runs
+     * natively, then replays the resulting `cf_clearance` cookie on later
+     * OkHttp requests together with the WebView's own user agent. The
+     * device's real browser therefore supplies both the matching UA and the
+     * cookie, from the device's own IP - which is exactly the binding
+     * Cloudflare enforces, so no UA spoofing or shipped token is involved.
+     *
+     * Declaring `usesWebView` lets the host disable this provider on a
+     * device with no WebView instead of showing a permanently empty tab.
+     */
+    override val usesWebView = true
     override val mainPage = mainPageOf(
         "all" to "All",
         "kdrama" to "K-Dramas",
@@ -61,6 +81,22 @@ class KDramaIn : MainAPI() {
         private const val TMDB_EP_CACHE_MAX = 1024
         private val tmdbEpCache = HashMap<String, Pair<Int, Long>>()
         private val tmdbLock = Any()
+
+        /**
+         * One shared [CloudflareKiller] for the whole provider.
+         *
+         * It caches the solved `cf_clearance` per host in `savedCookies`,
+         * so a fresh instance per request would throw that away and re-run
+         * the WebView challenge on every call. Created lazily on first use
+         * because the constructor touches `CookieManager`, which needs a
+         * live Android context.
+         */
+        @Volatile
+        private var cfKillerSingleton: CloudflareKiller? = null
+
+        @Synchronized
+        private fun cfKillerSingleton(): CloudflareKiller =
+            cfKillerSingleton ?: CloudflareKiller().also { cfKillerSingleton = it }
 
     }
 
@@ -199,7 +235,7 @@ class KDramaIn : MainAPI() {
         // UG-5 dead tier: dead listing pages are not re-tried for 1 h.
         if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
         return try {
-            val resp = app.get(url)
+            val resp = app.get(url, interceptor = cfKillerSingleton())
             if (resp.code == 404 || resp.code == 410) {
                 Cache.markDead(url)
                 return newHomePageResponse(request, emptyList())
@@ -217,6 +253,7 @@ class KDramaIn : MainAPI() {
             val doc = app.get(
                 mainUrl.removeSuffix("/") + "/dramas.php",
                 params = mapOf("type" to "all", "q" to query),
+                interceptor = cfKillerSingleton(),
             ).document
             val counts = fetchTmdbEpisodeCounts(doc.toCardTmdbIds())
             doc.toCards(counts)
@@ -228,7 +265,7 @@ class KDramaIn : MainAPI() {
     override suspend fun load(url: String): LoadResponse {
         // UG-5: re-opened detail pages are served from the episode cache.
         Cache.episodes.get(url)?.let { return it }
-        val doc = app.get(url).document
+        val doc = app.get(url, interceptor = cfKillerSingleton()).document
         val nm = doc.selectFirst("h1")?.text()?.trim()
             ?: throw Exception("Could not parse title from $url")
         val poster = doc.selectFirst("meta[property=og:image]")?.attr("content")
