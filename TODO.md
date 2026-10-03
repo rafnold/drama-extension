@@ -85,6 +85,42 @@ Recent releases:
 - **v5** (2026-09-27): KissAsian provider. v4 (2026-09-26): posters + VidSync
   curation/subs. v1-v3 (2026-09-25/26): DramaNice + KDrama.in + runtime fixes.
 
+## KDrama.in 403 / Cloudflare investigation (2026-10-03)
+
+`https://k-drama.in` now answers **403 `cf-mitigated: challenge`** ("Just a
+moment...", `challenge-platform` in the CSP) on every path: `/`, `/dramas.php`,
+`/?s=`, `/feed/`, `/robots.txt`, `/sitemap.xml`, `/wp-json/`, even
+`/favicon.ico` and `/wp-content/uploads/`. Only `/cdn-cgi/trace` (200)
+responds, so the zone itself is behind the challenge, not one route.
+
+- Not a code regression: `git diff 2da2ebf e005d3f --stat` (v12→v14) touches
+  nothing in `KDramaIn.kt`; its last change is v12 (`2da2ebf`). The mirror value
+  has been `https://k-drama.in` in every release since v11 (v11 config.json,
+  version 1) and hardcoded pre-v11.
+- Not a header/UA problem: full Chrome-131 desktop header set (`sec-ch-ua*`,
+  `Sec-Fetch-*`, `Accept-Language`, `--compressed`), a mobile-Chrome UA, and a
+  bare `curl/8.0` UA all get 403. A **real headed browser** (Chromium via
+  browser-use) also never clears the challenge — 60 s of polling, title stays
+  "Just a moment...", 0 links. Same via `r.jina.ai` (proxy hits the challenge
+  too).
+- No mirror exists: `kdrama.in` is an unrelated squatted domain; `kdrama.tv` is
+  a for-sale A-grade domain; `kdrama.la`, `kdrama1.in`, `kdramain.net`,
+  `kdramain.com`, `k-drama.com`, `k-drama.tv`, `kdrama.to` all NXDOMAIN/000. No
+  origin subdomains (`origin|cdn|static|img|mail|staging|dev.beta.k-drama.in`
+  do not resolve); the cert is a plain CF-managed `*.k-drama.in`.
+- Untested hypothesis (needs the user's own network): our egress IP is a
+  datacenter IP in NL (`/cdn-cgi/trace` → `ip=178.84.195.10`, `loc=NL`,
+  `colo=AMS`). If the block is IP-reputation based, the provider will still work
+  on a real device. **Ask the user to run this on the device's network** (or a
+  home IP) before touching the code:
+  `curl -sI https://k-drama.in/dramas.php | head -1`  → `HTTP/2 200` = fine,
+  `HTTP/2 403` = the site blocks everyone and the provider needs a new source.
+
+**Lever when a mirror appears (no code needed):** `drama-config/config.json`
+`"kdramain": ["<new mirror>", "https://k-drama.in"]` — `Config.mirror()` picks
+the first non-dead entry, so prepend; add `k-drama.in` to `"dead"` only after a
+mirror is verified working.
+
 ## Next steps
 
 1. **User-side verification of v9** (auto-updates in-app at app start, repo
