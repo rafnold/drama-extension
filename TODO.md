@@ -183,6 +183,55 @@ Verified live through `mcp_playwright_browser_*` (full chain):
   curation failures already noted in the v13 release note. Nothing in the
   extension needs changing for it.
 
+### A fresh `cf_clearance` DOES unlock the site for a plain HTTP client (2026-10-03)
+
+Correction to the earlier conclusion in this section. The token first tested was
+a stale one; a **freshly solved** `cf_clearance` works. Verified with a token
+captured from the Playwright session (`expires` 2027-10-03, i.e. a 364-day
+lifetime):
+
+| client (same egress IP) | result |
+|---|---|
+| curl, no cookie | 403 "Just a moment..." |
+| curl + `cf_clearance`, plain Chrome 155 UA | **200, 95,971 B, 20 cards** |
+| curl + cookie + full Chrome header set | 200 |
+| curl + cookie, HTTP/1.1 or HTTP/2 | 200 (both) |
+| python `urllib` + cookie (different TLS/JA3 stack) | 200, 20 cards |
+
+All 7 provider routes pass with curl + cookie: `type=kdrama|cdrama|movies|
+ranking` (20 cards each), `detail.php?id=2734` (25 watch links),
+`?type=all&q=law` search, `watch.php?id=2734&season=1&episode=1`.
+
+**The token is bound to the exact UA string, not the TLS stack** — this is the
+whole ballgame:
+
+| UA sent | result |
+|---|---|
+| exact solving UA (Linux Chrome/155) | **200** |
+| Chrome/154, Chrome/131 | 403 |
+| Windows Chrome/155, Mac Chrome/155 | 403 |
+| Android Chrome/155 (Mobile) | 403 |
+| Dalvik/2.1.0 (OkHttp-style) | 403 |
+| no UA | 403 |
+
+So `curl`'s JA3/TLS fingerprint is irrelevant — Cloudflare only checks that the
+UA matches the one that solved the challenge. That also means an OkHttp client
+on device is *not* inherently disqualified; it just has to send the identical UA.
+
+**Constraint on solving:** a token can only be obtained by a browser whose UA
+matches the client's UA exactly, and Cloudflare refuses to solve for stale or
+mismatched versions. Attempts to solve while *claiming* a spoofed UA all failed
+(Chrome/126 Windows: 100 s, never cleared; Chrome/155 Windows: 100 s, never
+cleared — `cf_chl_rc_ni` set, no clearance issued). Only the browser's own
+native identity solves. So in practice a usable token for the current
+`KDramaIn.kt` UA (`Windows NT 10.0 … Chrome/126.0.0.0`, KDramaIn.kt:43-45)
+**cannot be obtained at all** — Chrome 126 is far too old.
+
+**Untested and decisive for on-device use:** whether `cf_clearance` is also bound
+to the *solving IP*. Everything above shares one egress IP. A token solved on
+the build host will very likely be rejected on a phone's mobile network. Needs
+one check from the user's device before any token-shipping design is built.
+
 ## Next steps
 
 1. **User-side verification of v9** (auto-updates in-app at app start, repo
