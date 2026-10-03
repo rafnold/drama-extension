@@ -350,26 +350,37 @@ class KDramaIn : MainAPI() {
                 "$vb/embed/tv/$id/?season=${season ?: 1}&episode=${episode ?: 1}"
             }
 
-            // UG-4: the single vidsync embed resolves under the shared
-            // ~20 s budget; the resolver owns the live-API call, the curation
-            // cache fallback, dedupe and quality ranking.
+            // Multi-server fan-out (see MultiServerResolver): the watch page
+            // offers seven interchangeable servers and any one of them may
+            // lack this title, so try them all under the shared budget instead
+            // of betting everything on one embed. Verified 2026-10-03: for
+            // id=290699 s1e1 server 1 (vidsync) is 522 dead while server 3
+            // (/2.php) returns the episode with a direct m3u8.
+            val msr = MultiServerResolver(name)
+            val tasks = LinkedHashSet<EmbedTask>()
+            tasks += EmbedTask(embedUrl, name)          // primary, stays first
+            tasks += msr.tasksFor(
+                mainUrl = mainUrl,
+                id = id,
+                season = season ?: 1,
+                episode = episode ?: 1,
+                isMovie = isMovie,
+            )
+
             val ctx = ResolveContext(name, data)
             val results = Resolvers.resolveAll(
                 ctx,
                 ResolveContext.TOTAL_BUDGET_MS,
-                listOf(EmbedTask(embedUrl, name)),
+                tasks.toList(),
             )
             var added = false
             for ((_, res) in results) {
                 if (res.ok) added = emitResult(res, name, UA, subtitleCallback, callback) || added
             }
 
-            // Fallback discipline (AI_RULES §5): vidsync is intermittent
-            // (521/unreachable seen 2026-10-03), so when it yields nothing
-            // playable fall through to watch-page server 6 (YOY ->
-            // kisskh.megaplay.su), which carries English subtitles and was
-            // verified end to end. Runs only when the primary produced
-            // nothing, so it costs nothing on the happy path.
+            // Server 6 (YOY -> kisskh.megaplay.su) needs its own referer-aware
+            // walk rather than the generic resolver, so it stays a last resort
+            // after everything above has had a turn.
             if (!added) {
                 val yoy = Yoy4Resolver().resolve(data)
                 if (yoy.ok) {
