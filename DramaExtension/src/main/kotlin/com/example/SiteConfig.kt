@@ -48,6 +48,8 @@ object SiteConfig {
         val zokoXorSeeds: List<String>,
         val vidbasicAesSeeds: List<Pair<String, String>>,
         val dead: Map<String, Long>,
+        /** FlareSolverr base URL for Cloudflare-blocked sites; null = off. */
+        val flareSolverrUrl: String? = null,
     ) {
         val vidsyncBase: String get() = originOf(vidsyncApi)
 
@@ -76,6 +78,7 @@ object SiteConfig {
             val deadJson = JSONObject()
             for ((k, v) in dead) deadJson.put(k, v)
             o.put("dead", deadJson)
+            flareSolverrUrl?.let { o.put("flareSolverr", JSONObject().put("url", it)) }
             return o
         }
 
@@ -136,6 +139,11 @@ object SiteConfig {
                     "94588293375053432799222445521289" to "5259228356829423",
                 ),
                 dead = emptyMap(),
+                // Default FlareSolverr instance on the user's LAN. Used only
+                // for Cloudflare-challenged hosts; override in
+                // drama-config/config.json or via $FLARESOLVERR_URL, and set
+                // it to "" to disable the mechanism entirely.
+                flareSolverrUrl = "http://192.168.1.20:8191",
             )
 
             /**
@@ -215,6 +223,11 @@ object SiteConfig {
                     },
                     vidbasicAesSeeds = if (aes.isNotEmpty()) aes else d.vidbasicAesSeeds.toList(),
                     dead = dead,
+                    flareSolverrUrl = obj.optJSONObject("flareSolverr")
+                        ?.optString("url")
+                        ?.trim()
+                        ?.ifBlank { d.flareSolverrUrl }
+                        ?: d.flareSolverrUrl,
                 )
             }
         }
@@ -280,6 +293,22 @@ object SiteConfig {
     /** [Config.vidbasicAesSeeds] with the `VIDBASIC_AES_SEEDS` env override. */
     fun vidbasicAesSeeds(): List<Pair<String, String>> =
         envPairList("VIDBASIC_AES_SEEDS").ifEmpty { cfg().vidbasicAesSeeds }
+
+    /**
+     * Base URL of a FlareSolverr instance used to clear Cloudflare
+     * challenges, or null when none is configured.
+     *
+     * Precedence: `FLARESOLVERR_URL` env var > remote config.json >
+     * hardcoded default. Sites behind a Cloudflare managed challenge do not
+     * yield to CloudStream's own hidden WebView (verified 2026-10-03: the
+     * solver timed out at both 60 s and 180 s on device), but a real headful
+     * Chrome clears them, which is what FlareSolverr runs.
+     *
+     * Point this at null/"" to disable the mechanism entirely.
+     */
+    fun flareSolverrUrl(): String? =
+        env("FLARESOLVERR_URL") ?: cfg().flareSolverrUrl
+
     fun deadHosts(): Set<String> = cfg().dead.keys
 
     private fun configUrl(): String =

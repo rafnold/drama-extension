@@ -83,26 +83,27 @@ class KDramaIn : MainAPI() {
         private val tmdbLock = Any()
 
         /**
-         * One shared [LongTimeoutCloudflareKiller] for the whole provider.
+         * One shared [FlareSolverrInterceptor] for the whole provider.
          *
-         * Replaces CloudflareKiller for k-drama.in: that class is hard-capped
-         * at WebViewResolver's 60 s default, and on the device the challenge
-         * ran out of time every attempt (logcat 2026-10-03: Turnstile loading,
-         * then "Web-view timeout after 60s" + "Destroyed webview"). This one
-         * passes a longer budget to WebViewResolver and elects a single solver
-         * per host so the host's parallel catalog fetches do not each spawn
-         * their own WebView.
+         * FlareSolverr (a real headful Chrome) clears the Cloudflare challenge
+         * that CloudStream's own hidden-WebView solver could not: on device
+         * that solver timed out at both its 60 s default (v16/v17) and the
+         * 180 s budget v18 gave `WebViewResolver`. Verified live against
+         * FlareSolverr 3.5.2: challenge solved, 200, 20 cards.
          *
-         * Created lazily on first use because WebViewResolver's construction
-         * and the solve both need a live Android context.
+         * Generic by design - any Cloudflare-blocked provider can reuse this
+         * interceptor. Endpoint comes from `SiteConfig.flareSolverrUrl()`
+         * (remote config.json > default > $FLARESOLVERR_URL).
+         *
+         * Created lazily so a blank/misconfigured endpoint costs nothing.
          */
         @Volatile
-        private var cfKillerSingleton: LongTimeoutCloudflareKiller? = null
+        private var cfKillerSingleton: FlareSolverrInterceptor? = null
 
         @Synchronized
-        private fun cfKillerSingleton(): LongTimeoutCloudflareKiller =
-            cfKillerSingleton
-                ?: LongTimeoutCloudflareKiller().also { cfKillerSingleton = it }
+        private fun cfKillerSingleton(): FlareSolverrInterceptor =
+            cfKillerSingleton ?: FlareSolverrInterceptor()
+                .also { cfKillerSingleton = it }
 
     }
 

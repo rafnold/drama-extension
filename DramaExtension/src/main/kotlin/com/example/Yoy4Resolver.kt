@@ -170,13 +170,13 @@ class Yoy4Resolver {
     }
 
     /**
-     * Shared Cloudflare interceptor for the yoy4 proxy fetch, same
-     * long-timeout solver as the catalog fetches.
+     * Shared Cloudflare interceptor for the yoy4 proxy fetch - the same
+     * generic FlareSolverr-backed one the catalog uses.
      */
     @Volatile
     private var killerSingleton: okhttp3.Interceptor? = null
 
     @Synchronized
     private fun killer(): okhttp3.Interceptor =
-        killerSingleton ?: LongTimeoutCloudflareKiller().also { killerSingleton = it }
+        killerSingleton ?: FlareSolverrInterceptor().also { killerSingleton = it }
 }

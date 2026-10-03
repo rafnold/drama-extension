@@ -2,6 +2,7 @@ package com.example
 
 import com.lagradost.cloudstream3.app
 import com.lagradost.nicehttp.NiceResponse
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
@@ -89,6 +90,28 @@ object Http {
             params = params,
             referer = referer,
             interceptor = interceptor,
+        )
+    }
+
+    /**
+     * Blocking POST with a JSON body via the same shared NiceHttp client.
+     *
+     * Used by the FlareSolverr client, whose `/v1` API is a JSON POST. The
+     * response is parsed as text by the caller (FlareSolverr always returns
+     * JSON, so there is no benefit to NiceHttp's `parsed()` here).
+     */
+    fun postJson(
+        url: String,
+        json: String,
+        timeoutMs: Long = 15_000L,
+    ): NiceResponse = blocking(timeoutMs) {
+        app.post(
+            url,
+            headers = mapOf("Content-Type" to "application/json"),
+            requestBody = okhttp3.RequestBody.create(
+                "application/json".toMediaTypeOrNull(),
+                json,
+            ),
         )
     }
 }
