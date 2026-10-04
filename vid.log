@@ -1,0 +1,318 @@
+fetch("https://player.zxcprime.xyz/backend/tmdb/details/tv/239389?language=en-US", {
+  "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-storage-access": "none",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/player/tv/239389/1/1"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://player.zxcprime.xyz/backend/willierevillame", {
+  "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.6",
+    "content-type": "application/json",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-storage-access": "none",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/player/tv/239389/1/1"
+  },
+  "body": "{\"a7f39c821d604e5b9c71f36e1547b\":\"239389\",\"c285f91ab306d28147a35632e816b\":\"tv\",\"6b491e7253ad84d392e7561a9384c\":\"valstrax\",\"d8427b59ce30684a2f957c3613e85b\":1,\"91c6e4a728503d1f785c92346b713d\":1}",
+  "method": "POST"
+}); ;
+fetch("https://player.zxcprime.xyz/backend/willierevillame", {
+  "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.6",
+    "content-type": "application/json",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-storage-access": "none",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/player/tv/239389/1/1"
+  },
+  "body": "{\"a7f39c821d604e5b9c71f36e1547b\":\"239389\",\"c285f91ab306d28147a35632e816b\":\"tv\",\"6b491e7253ad84d392e7561a9384c\":\"subtitle_\",\"d8427b59ce30684a2f957c3613e85b\":1,\"91c6e4a728503d1f785c92346b713d\":1}",
+  "method": "POST"
+}); ;
+fetch("https://player.zxcprime.xyz/backend/intro?imdbId=tt29362982&season=1&episode=1&tmdbId=239389", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-storage-access": "none",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/player/tv/239389/1/1"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://rest.opensubtitles.org/search/episode-1/imdbid-29362982/season-1", {
+  "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.6",
+    "if-modified-since": "Sun, 04 Oct 2026 14:30:10 +0200",
+    "if-none-match": "53bf257a36cd0d95dcba24459f4d445f0c341be6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://player.zxcprime.xyz/backend_/sources/valstrax?a7f39c821d604e5b9c71f36e1547b=239389&6b491e7253ad84d392e7561a9384c=valstrax&c285f91ab306d28147a35632e816b=tv&61d9a5274c8e3b29afd6384c291e6=1791117112803&c492f7a183d6502b1e7436c538a716d=ff0a1f26169d714bceff8e2e9c19e4c5b45225a0521708b8f0d593805064177f&5e28c9147a306d1e829f3674b392a1=Fangs+of+Fortune&b731e6c94f08269d725f8341c306e=2024&e164932c50216a39e5814b3027=2024-10-25&d8427b59ce30684a2f957c3613e85b=1&91c6e4a728503d1f785c92346b713d=1&e16932c543416ad739e5814b3027=2024-11-16&f35a8c19d674b3265e871c4933a725f=tt29362982", {
+  "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-storage-access": "none",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/player/tv/239389/1/1"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://embed.vidstuck.xyz/backend/subtitle?a7f39c821d604e5b9c71f36e1547b=239389&c285f91ab306d28147a35632e816b=tv&6b491e7253ad84d392e7561a9384c=subtitle_&61d9a5274c8e3b29afd6384c291e6=1791117112808&c492f7a183d6502b1e7436c538a716d=c1c33aa70959c92bcb78438d3c7146213b046b4c93105fbfd7683b6da61ce2d6&5e28c9147a306d1e829f3674b392a1=Fangs+of+Fortune&b731e6c94f08269d725f8341c306e=2024&e164932c50216a39e5814b3027=2024-10-25&d8427b59ce30684a2f957c3613e85b=1&91c6e4a728503d1f785c92346b713d=1", {
+  "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://embed.vidstuck.xyz/backend/database/andromeda?url=qXER6nLzBnhhQ8Msk53mbfGPUa-LWcag9rvARkRfeD73aUzx2zQlPb_xrx5ocf5h3B5DtN0LOmfwpjMFcfqYYw2grGXlJIxXCc9-aB6DgQAeadd4oQHUJevhTTOp4r06GGuXXldtFzWGyw&header=63G7_QZOTn6wMdEhYCkjCTYFRLdMVoEAAisXekWgB-URuWnbhWwdLlpmftbSiV6faimiR6wM9qKGnJ2wCS60-RNQsgvoqSkvnbV_qZFtJYr3Dfwa3myzAgmIAnmon4jdUgxYHZtWJBP9at3zgpR5TRumd_Ydp6ci2sQmmTfRUpNQOsHk9LuQw4M_HV2iE8kajH-CW6IbCBgaylagzsj4lv1G86N10m5z_aeY_U8dSnbNG_RhJMY3ag8Ksx4Ymb7BYfDOQJsSR_GWO_wOswPft1lJLuIxWDkLFHydC94mqBKIFj0j8tqHEJUWlIBtOpa5xKNYN0jwQinUZ6xpoo-hHhOgoIiVbTdnEaCBA4XgVeKw9vZm2e-0BLONs62wxVmHo2bTkxhQ1JnGy17WlacUKeLWmoYppQHFbAPcNyEfjrdFGXKMjFndo7697fTKAdQeGhIP6THM7v70smRGpxFjWVSFGAjvpaZmSMbvAgQE-2W5fWmHd92RoiT85wKyQ3ilgaewOPsqb8myhMpiylcoi3RVDphVZQaW7d7iTieONm0RRT8N7fu9cXG6Jtvnup49NjY8k7N0R3ExVr3Go_w8_8hc1OYik5Fh5bULztGDEaC6ZpLIxBebQuJM2upS9Rjx3HhRRELLH8JrLyv12dCqdSg03u7VOlng1gcSxyyjyuCQ8tvZITK2uNsC8ex0kr6nCdT2RsGA_vxGBFoCANtJabT1E4n2CjwOxl17WU3vhk8KQISqyqZMYgqaP0i0J3ObVxg-JkfBJJ9KwwI5lJAbnADEmu5H9FFmZ3Qqnl74D2sfapAw59OhoEpbMuT0P02FZD9fv9g-PDXR2avUCDfDPsKkIHc_DfDHFozF_40BX3JSMExBBTdlpAldrYfjDTvPrBuj", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://player.zxcprime.xyz/backend/willierevillame", {
+  "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.6",
+    "content-type": "application/json",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-storage-access": "none",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/player/tv/239389/1/1"
+  },
+  "body": "{\"a7f39c821d604e5b9c71f36e1547b\":\"239389\",\"c285f91ab306d28147a35632e816b\":\"tv\",\"6b491e7253ad84d392e7561a9384c\":\"atlas\",\"d8427b59ce30684a2f957c3613e85b\":1,\"91c6e4a728503d1f785c92346b713d\":1}",
+  "method": "POST"
+}); ;
+fetch("https://player.zxcprime.xyz/backend_/sources/atlas?a7f39c821d604e5b9c71f36e1547b=239389&6b491e7253ad84d392e7561a9384c=atlas&c285f91ab306d28147a35632e816b=tv&61d9a5274c8e3b29afd6384c291e6=1791117113184&c492f7a183d6502b1e7436c538a716d=35d721281e682f26ba15b378df276788477054ea804efd2bdc22662e6e370677&5e28c9147a306d1e829f3674b392a1=Fangs+of+Fortune&b731e6c94f08269d725f8341c306e=2024&e164932c50216a39e5814b3027=2024-10-25&d8427b59ce30684a2f957c3613e85b=1&91c6e4a728503d1f785c92346b713d=1&e16932c543416ad739e5814b3027=2024-11-16&f35a8c19d674b3265e871c4933a725f=tt29362982", {
+  "headers": {
+    "accept": "application/json, text/plain, */*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-storage-access": "none",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/player/tv/239389/1/1"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://cold-dust-67b4.wubbalubbadubdub3.workers.dev/a?u=vOnJf_s0yqgxOBgtxwEhRBFNf496hqWN16QdBMi4bVzUNhnPveFV9Mq9lsqKNo7qzUdEo4WCqRtta7E4fuxwoVCATNVt7C3bb25gAVeIB2cjA9CfPV37Gs6CHGL1FKAkSUmpa8Xij7fsEQ&h=a41lu7jAUF3hxDt_fYV5HMCj2Kf9AIGGIxpoQEAlmmA5GuBD7RfJdSEg0PpJElG0zk1Zbn1w4TBsMiyaZJPoZN0vAl6Odl9cQa69f8YZKpTs1Dxc2Z7pelMFQm4l7H_L3ReME6AyCnBh5gY4y4Dpb9tU2xrKlv0Z1IvIVJEPRZHPorx91lmyYLq_3YaSaKwI4aAboqJ4zFAWhbmluv3ABwyE3W6udWlt-7Lj2EKWA0tirHTkR2pcrNk5dgdxEYLZwY6EADr62aDcwXoz9DD2-Bgf-hBe9Q8OF9LGmxuBTuqwlzIHRoHDcoSIE8VUMhOIXkioFNpLyrfXqXLyw2XDFgz4Aw7TPTQF9m9J741ip0IeSfLf7UdKisxPH_AvvFJdXNQv4dQvrJMuXF8DIT6ioCBC8JoiRoHJOjz3Df45x-Byw7zkUrYzn0trQSkmR0H4mRnoKw4rooVYd9wyNYZA1kE1dvLrf90PclWTpbsGSiaI42H5rDTOrar5iqmBWA5I4qek8-oABXqzC0W93DB3NG3J3ZclbbL-WlKdOINdl3sRudYs-pgzGcmq-xa6kKfBoDZTJwlgIj5Rb1xSkj7Makbgg9asdDqxu6CqU0xlcfztkuQUw8v6ZQ", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://cold-dust-67b4.wubbalubbadubdub3.workers.dev/a?y=KpF42Y8ekR9eUWNh_ztIX1b-Dnc9458kF89tNweHt5OfWvW4Qh6WwvBHihXU7OBj_jatRlI5SOyuEfU61xxduPkayUAJimk6x47f6KWX-yYfwAfQxzXAymbZ7_YtxY2o-xThaPFbx1aQJAO5wkpeGFZVx6c2jhDoqSI&h=3cdiduGge20BRmrQrbgjOtWRl_hasc0dJsQtB8X_lEmLyRn_mrksBFZiqCyOnJKJWToskVtk1JhSiiBaWiobqZSknyNH1wjq40jz7AM6nqMCkh_wa424sa6GIC17s0ibrvpbLZxS7quFSaydRahhVB5vT1Lxo4YeFvkCtRNHQZ4IKxiguRot4oPxOhv2Sr8lj6Cz0NxYJoHDGIHiNgI9z9OfeH5HVf3eo4P_Hmv_FHgsZbyTX-DIcuaYWUsTiKk8rnU8VaGGf0Vxt1-kGl63OUx5W2iClE3ayVgUJDWsQhS01E6GFog4tI-EpSOdmFvF25w4LEETTqQwqLGBvksoaSSeXhPRtyr2shj6ECUgfEmEEws30sMPTCzSVS6ROaD2Hvfjgu3Qk-e1KLYH1EjodDypho793rQ6nnNTi7e93cnkgtm6f4MFw2anwjNWXQ3FcLQ3B31smUpB8ftkzBk54yF4jifCo1ptd5ZA-AFz29Px9pvwpSQpnjljVgOdqPYN38cG700xI7sg04ipkfTsraTWVYVjkDojib94_QULiNq3aCB1fYP0UiHD6whm_pUEpy0ZUMp_OU2eCHVgU3YZThGOTvdgIsyFuWKLnYCfN6As4qWkDXpjmQ", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://cold-dust-67b4.wubbalubbadubdub3.workers.dev/a?y=qnr-69XuzR-zBVoDlRMvrALD2Hf8WI5qsY-4FTLdLMkJ9cbimEjZqspTiJAa0UbzsymI43WSuKLvBBEQxWoeb4jX_Ml7T-h1bj-skMJOLxj4bZ1cpKN7I-op8Bk7EemfnzIzJ-0hafuAMV-5AhjmAY4sW4Qc5uMU4Q4&h=nMkBuwV90mK1QbZfwGSucScPBMwkrSsRD6gWCMQZFhjNvsKNb5IKF7uNtLK_5OtFEo9-bg2WozsWNH-VXmZKXdDMhZ5OnPILQqYkVxJyw_pTZH6MLULPtBmkYsnfIDTosrdRFe8hpW3zybL4vPPchnVhCTJjVi5TgavhHeYwlTFovELnB-PALMDwKAvkASmkhWmNnkHls24O5ZR3Tp369tDl8U5S6Nbf6pwro2Yqzj7W60O0TLRIjwyP5wYKFdvKiZ6iL7SIPoQoEcUayKfuT76mLyVNl-JiFFhSrEqIESh7VhZg-Kl__TkuIen6IsKFzUr_jj2QnwsBn2qx7U2Vd37iDXnyGHI5zXc7ZY4GkXKSU7090ERNZjTT9eCvdOuGd78WOTTpdbXxZuYAiysJ4a1jptnmSfdhkbkW6KoCZvtMoyU9f6t3w0IUfoMGArgKGDbS2xV9hN5bj5vVO9nrgtpt5am9qlPn1HYhsq8q9-Yj7wHYVmDLnKKGSSmlwrsluSRnLLKTBMRzM4y_djpPhKR0q0U7KVQ4QJOHNRTNd3IVsuejiJ1WTZOxZwoY7tKULwjXv5nP5VWhqBUj46R2t8-ZQKnKIOgEtTxdlSCAOzmmaT22wJ4h_g", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://cold-dust-67b4.wubbalubbadubdub3.workers.dev/a?y=FlsCk72CJsAUcKCLJF6tq5kcJgJCrcKjr9xMPmjwmEI5Fpvmr56_6MxFJ2rymkJIA8qjl0kZLnPrWKd-VFB8D4sfZN_bwj9y4d7RRRZRgfMyFIiaNft5D40t6_HsuOPzU2l58aBEMMpD56ByYIGmGakMsM73bdXaQVk&h=Bvp7UdtQoiXUfhbn43KxfkUh96nH1zn3HJ-mS8lfmK7NQ4Splj04l4CY-pygPbmwss_q_UwhK0txois7k_y_Jx_3YZbPHhYpQMF0kNr3pGntC31asNFDbyhPEjO1qKQix6zJqfP2lm4ppdrABrlCZcvf_tv53qbHME_f1uC3Ih9Q_XbvqzlWFhsPXmpM2OwuiFsz_8bgo5mmA6UlzQvLsVUHnyoMlKrDop4o0vTe-JMOUgEThGHtC3KwS96cDhxZ9mjEi3fXKzh9lLxQeK3F2-rB-50ReeSHNeT01uCeteaGMarbta8CJUcfP8CgB4mbty_-xiNb1bLx3m0BHfXkcSwagWXlMv2pELqUKffga4eeLp0NoNmsD-pyjit70oVKdJOvcr-AMCPcOle_YXhnxZK6DmAmk2npqVKRbj0aOWNvmz0A_zpumagYjmi_zgHfN6M7H4jjOw76NH9BDUysYFldex8evsKjIxm00p5fqgm4bj1QHJLB-4hzZO2-QuYl1H7wX0-yzOjzh-uJPKqExvPzFucIEApjp1wDYC5Zm9hd0v1j2B810DrTp33dNtfDwfShiZWcqMS4AVELUqJF21kVdrKMpGx34dCwa9WbUE5gQON0iXe4rQ", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://cold-dust-67b4.wubbalubbadubdub3.workers.dev/a?y=4QBBprgYRguJiXxauvGJrJBJaALwxyvu2DpWIreUhcdPEkfaX8oAknWD8hGfIeF6A0-CWMamfQUDoaYNFbcgk7tr61FIHO0rpv2bLrpTGxioJ4Fq4lKUkrW40GFMpByH4Ue2v0wpNULqAyJ7qgicxxLRjdSgpPY0M0Y&h=ErfcV7nZWSqLrF-amVLmaPPsFjsIf-kd-djnJMQpcQpi9eoCAWsQh8CfINgkaf8m_Hk2nItZI3A14803ExkKmTVN0b5sQ_hTJLv9WUuWHkggGTXwK25F-nf_V6HVuGrRk0wSfhItec7vWdOeUqWNrCYtYfM1V8L5nvH2bpAmOukMw31F94tXetV4T__QNsvdQ8hAj6gXnY0etecED8lDjJHThUYGOJLooWR5GcCC9c3oCLzDfApeW9Ejiy7G0xC_5PRp0ALXKhQq4N0QMQCdd8OwehJfAiaowY_ySd6WHa0Oc3kYnF_Z2QQSyvNOsmi8uDEmrUXL7KGWpe1ITuadyTMeTWqs_UhcDDiBmfoatgde6B7MWiZFR6I3CoQPGftIHTeWMPSs3evuPI39jHfPeW2zQ31_2NkehhKrhWYlNBeROvJ4f9z5YBKVWtxKhHRZ9_N3Xea_7Jp1mknO25YNiQaIcyFdShWExIJ3fnCSPd70lM86SG8UawxedZbtK9PbMvV0ZM51hNWkIwcsKfPea9BSr6IEHPhQB4jYinA74Ry8z8RhKBgkMv9O7LDKfhssv9JI43VRnRteoCO7-HBJoVcwKBWl1gG2ml7OeF3x3oiWeTbIHqHZEg", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://cold-dust-67b4.wubbalubbadubdub3.workers.dev/a?y=LQT_6cnUrLnH2uZsRqJyA3ElJuG53xhMg5FGSlIOHlK3e37Ix-EDNpFxM81Y9Y0KFIsOs4HoMykm_H_mdFmO9eVICfI3VUtseObb-Ixg5j5IlanpKfI60sYWR0zLyS4_m7fiSt3B82-xqkhkStPgwtt6UczXVsM2mJ8&h=jEb6oxdJGnC_SHISwo7x6NiCbc5RA9wU6aFvciGYt6Nnsiy-SNdVHXRJHR0k85z15ETP7oZ1QrOW088WzJx1k-ioaG5mC6dZ5z4uaG4AhK77n7xhfggtB-YjMR0wrR5JacrLmsSzSl1Xqnjp7_tpqlzxngGvQeLx2tpUTdql3s4S7SwQDqiUeCEr1xijsPY_4PoISfYpP6N5mJXu8N11HTAOcaWn4asZg6RTmv2YVf9usIfpbLe9BBBe_Llnmj9Tv1RwvPJlH-44Q49jJ4C674T17y7XJvP_UQtoIdUZQNeFWaJPXUI2b-GmsJzluhRoJLin62ZxOVXNBt83kZpkrmI7yDbya7iQc4AdxwGDwAQuAC9mExzY-AU6RluvXo85_Dc_9QCn_7_pvI5_Ut5GSEU3E9zPrCDee-ChNp4N3Fy7gK3g1P04Q61fwCPMPIzGFEe2lVE9tZEa65jW1maRycbPofiD37I62GYHLPPKAVYrZYo_P8aT9NR9ArG2X2i4QYlVGaggvygbFkoYndXikvXTutWpK9EAMsGTuVp_F_StFKWLEqziyT0c1GifjIFotWO1_C88z36tL5aINUDHKb8bPoWF3nrRLLbCBLZaoB6uLXtwEB1HyQ", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://cold-dust-67b4.wubbalubbadubdub3.workers.dev/a?y=1tORV2KlswN5fm2wSBMNNm4WvSyRD0ALJm86nxtfOuk_S-Qy9Vf1_FV_Io8aUXfWadzXQKftVKonkZRoTIp9v63ymJLYEUiPFGwzOqpdWvNHh4u4h3jSFkHO9W6elgwCbu0KzDhZagVXpw64FggJFysPNzHFa0aaFXg&h=noqIEqX3gaIsFgmNdGlEpLBxwifMZSfbDayz4qWwDJ0fcJYye_cwMWShJTCIOJGTPchCFLvr6hvIBqMqubUwDUu6tnsRVV35TshYIZF8btBnY4AtBNaJ2mqQRlC93ZufKark6bK_42eKey9VSPKu8d6OCFcRFTOhiboGHEIT14Zj-fspok8tYqY30q_tg_Z4CDyYXMDDwqha4K2UmFCCM7ai4xMP9Lr9mxrUW2pDWrkh8AO2sfIHNeVHQHz0tksBOVArkr1bVPakl9a5kLMJbbYu0nf7hGVscdZhi7PAE6iVkExRuPANEDj3EhqF57iu2I14mPhzQyOpkLnggKKonNb0lxlS0QJEtGTZG4vHsYIkr5K3EG8xlPsmnYNfo5RSNsAGxxzeHWjSyK39wrD7yvfZfb3bWvX29fQTIpGfzCevcXjU4s6lYjmQq9JhPKmnnHvDK3Ki_4JINh7Q81-xcNHO7MPW4d_P4Hlux1PqTwn7m0S6tjwoCBBJW_TuuqlaIGq7__vg-53ma4v9wHtZrkaRWbJlky98ddsnRxqw6-3qxb6zIN2GWe_n0iuze9NxiyDgmT40l6t-ufJga9tulCLMEOvdHCxXiAwa59aVsC3nLC5QozmcQA", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+}); ;
+fetch("https://cold-dust-67b4.wubbalubbadubdub3.workers.dev/a?y=6-c2yeLme_9lXFI-8i5dOLu8sVKv_Z55dQTSoXdfl706PBZmJTsh5tms1-6_KU-4_n1pCmK4a-tvMn0AM-AZ6VjgSFppppwBDXtTOadmND8TRw6sQlaCXkOW1_5fzHw4jK3jq-xGSqcMFu6Xx74iKymEyx8fOKi_atY&h=QrZtYRBuMSjtP9UIHrYpD94PyvrplXoFlxrLuynPu79ovO7W-wzXTb_xq2eeZGHigM_QoFyENipsDAWcJzUN74Ph0sWdHv09KFESTMJe7p9GDoAqFmY0PfGUSsN4tUPBRYUaBnMkghWzNuhwEgkDZ-VqiKnd6hWDHq8qSTr0D7q1ypihnm2w2ScB_R5aW4ggZPbgGgqb1s8yxkGivwq8xcHfHvRn5GTq8WOfkkZP55YYgFO2t5l8rmu2S06dxzGkSKjCDuXCPrvoS_Oe0DudviV1Fn-K4wk75Rr0ab1Z6u79qtB6Spucey4hKc7EvkoiJ1QzRXzVOVzNzJjqzlfHxgT37FS11NCITI6KSSsaYNxp4QxKxr5qpqJVaVmEsNyMRiCI0-QtFYcrdsRS_ebvBbwIln90-ESlnihPA0cxggMyTbw5pxfkz9vJxGQ3nLEGnMs_DZUCLcHz2D1z8Nhs6LRfTNEsi1N-7ueucLB5RAZYuXeKF-5fXa_wRL8JFUBhe2GDa2IA5f7WWVhCxjC-RLNP6zlyw9vYjcEhVdOsLbJ0opKJ6Sd02iHL3mzFd748Lahtr3eqfla_fCKWNuf8Y03VzupVyB72W7pKsDxr3cDLAJEhU1G4dw", {
+  "headers": {
+    "accept": "*/*",
+    "accept-language": "en-US,en;q=0.6",
+    "priority": "u=1, i",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Brave\";v=\"152\"",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "\"iOS\"",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+    "sec-gpc": "1",
+    "Referer": "https://player.zxcprime.xyz/"
+  },
+  "body": null,
+  "method": "GET"
+});
