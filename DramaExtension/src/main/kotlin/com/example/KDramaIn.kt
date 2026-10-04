@@ -378,6 +378,22 @@ class KDramaIn : MainAPI() {
                 if (res.ok) added = emitResult(res, name, UA, subtitleCallback, callback) || added
             }
 
+            // Server 3 (moviebox) hides its stream and subtitles inside JSON
+            // query parameters of a player.html iframe, which the generic
+            // host-matched resolver cannot parse - it needs DevcorpResolver.
+            // This is the server that serves titles vidsync lacks (verified:
+            // "Fangs of Fortune" id=239389 - vidsync 521s, server 3 works).
+            if (!added) {
+                val devcorp = DevcorpResolver().resolve(
+                    MultiServerResolver.kdramaInProxy(
+                        mainUrl, id, season ?: 1, episode ?: 1, 2,
+                    )
+                )
+                if (devcorp.ok) {
+                    added = emitResult(devcorp, name, UA, subtitleCallback, callback)
+                }
+            }
+
             // Server 6 (YOY -> kisskh.megaplay.su) needs its own referer-aware
             // walk rather than the generic resolver, so it stays a last resort
             // after everything above has had a turn.
