@@ -106,7 +106,15 @@ interface Resolver {
 }
 
 /** One embed to resolve, with the provider's display label for its sources. */
-data class EmbedTask(val url: String, val label: String? = null)
+data class EmbedTask(
+    val url: String,
+    val label: String? = null,
+    /** Optional custom resolver. When set, [Resolvers.resolveAll] calls this
+     *  instead of the host-matched resolver. Used for dedicated resolvers
+     *  (DevcorpResolver, Yoy4Resolver) that need their own referer-aware
+     *  walk and cannot be parsed by the generic host-matched resolver. */
+    val customResolver: ((String) -> ResolveResult)? = null,
+)
 
 object Resolvers {
     /** Registry order matters: catch-all must be last. */
@@ -193,7 +201,14 @@ object Resolvers {
                 val sub = ResolveContext(ctx.providerName, ctx.pageUrl,
                     deadlineMs = started + budgetMs)
                 task.url to try {
-                    resolve(sub, task.url, task.label)
+                    if (task.customResolver != null) {
+                        // Dedicated resolver: bypasses the host-matched lookup
+                        // and the tiered cache. These resolvers do their own
+                        // referer-aware walk and their own caching.
+                        task.customResolver(task.url).dedupe()
+                    } else {
+                        resolve(sub, task.url, task.label)
+                    }
                 } catch (_: Throwable) {
                     ResolveResult.EMPTY
                 }

@@ -5,7 +5,6 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import org.json.JSONObject
 import org.jsoup.nodes.Document
-import java.util.concurrent.TimeUnit
 
 
 /**
@@ -412,45 +411,32 @@ class KDramaIn : MainAPI() {
                 episode = episode ?: 1,
                 isMovie = isMovie,
             )
+            // Dedicated resolvers run IN PARALLEL with the fan-out, in the same
+            // task list, sharing the same budget and completion-order draining.
+            //
+            // Previously these ran in a separate thread-pool future and were
+            // waited on AFTER resolveAll returned. If resolveAll consumed the
+            // full 40s budget, dedicatedWaitMs collapsed to 2s — not enough for
+            // Yoy4Resolver's ~19s chain (12s CF solve + 7s render), so the
+            // result was silently discarded. Now they're just tasks: if they
+            // finish within the budget, their result is in `results` like any
+            // other server.
+            val seasonNum = season ?: 1
+            val episodeNum = episode ?: 1
+            tasks += EmbedTask(
+                MultiServerResolver.kdramaInProxy(mainUrl, id, seasonNum, episodeNum, 2),
+                "Server 3 (moviebox)",
+            ) {
+                DevcorpResolver().resolve(it)
+            }
+            tasks += EmbedTask(data, "Server 6 (YOY)") {
+                Yoy4Resolver().resolve(data)
+            }
 
             val ctx = ResolveContext(name, data)
             val budgetMs = ResolveContext.TOTAL_BUDGET_MS
-            val fanOutStarted = System.currentTimeMillis()
-            // The generic fan-out AND the two dedicated resolvers all run at
-            // once. They used to run back-to-back, which doubled the wall clock
-            // against one shared budget: the fan-out could spend its whole
-            // allowance, then DevcorpResolver and Yoy4Resolver (which each cost
-            // a ~12 s Cloudflare solve plus, for YOY, a 7 s render) started with
-            // nothing left and were cancelled - `IOException: Canceled` then
-            // `No Links Found` on device 2026-10-04.
-            //
-            // Yoy4Resolver is deliberately included *only* here rather than in
-            // the task list: it needs its own referer-aware walk, and its page
-            // is an SPA that only FlareSolverr can render.
-            val dedicated = Concurrency.pool.submit<List<Pair<String, ResolveResult>>> {
-                val acc = mutableListOf<Pair<String, ResolveResult>>()
-                // Server 3 (moviebox) hides its stream and subtitles inside JSON
-                // query parameters of a player.html iframe, which the generic
-                // host-matched resolver cannot parse - it needs DevcorpResolver.
-                // This is the server that serves titles vidsync lacks (verified:
-                // "Fangs of Fortune" id=239389 - vidsync 521s, server 3 works).
-                acc += "Server 3 (moviebox)" to DevcorpResolver().resolve(
-                    MultiServerResolver.kdramaInProxy(
-                        mainUrl, id, season ?: 1, episode ?: 1, 2,
-                    ),
-                )
-                // Server 6 (YOY -> kisskh.megaplay.su) likewise.
-                acc += "Server 6 (YOY)" to Yoy4Resolver().resolve(data)
-                acc
-            }
-
             val results = Resolvers.resolveAll(ctx, budgetMs, tasks.toList())
             ExtLog.log("kd", "fan-out done: ${results.size} results")
-            // Whatever the fan-out left of the shared budget, capped so a
-            // pathological case cannot block the UI thread for minutes.
-            val dedicatedWaitMs =
-                (budgetMs - (System.currentTimeMillis() - fanOutStarted))
-                    .coerceIn(2_000L, 30_000L)
 
             // Emit EVERY server that resolves, not just the first.
             //
@@ -483,25 +469,6 @@ class KDramaIn : MainAPI() {
                 )
                 if (fresh.sources.isEmpty()) continue
                 added = emitResult(fresh, name, UA, subtitleCallback, callback) || added
-            }
-
-            val dedicatedResults = try {
-                dedicated.get(dedicatedWaitMs, TimeUnit.MILLISECONDS)
-            } catch (_: Throwable) {
-                null
-            }
-            dedicatedResults?.forEach { (label, res) ->
-                if (!res.ok) return@forEach
-                ExtLog.log("kd", "dedicated $label ok sources=${res.sources.size}")
-                val named = res.copy(
-                    sources = res.sources
-                        .filter { seenUrls.add(it.url) }
-                        .map { s ->
-                            if (s.name.isBlank()) s.copy(name = label) else s
-                        },
-                )
-                if (named.sources.isEmpty()) return@forEach
-                added = emitResult(named, name, UA, subtitleCallback, callback) || added
             }
 
             // Server 5 (zxcstream.icu) - discovery only, no source emitted.
