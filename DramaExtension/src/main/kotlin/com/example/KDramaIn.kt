@@ -97,13 +97,12 @@ class KDramaIn : MainAPI() {
          *
          * Created lazily so a blank/misconfigured endpoint costs nothing.
          */
-        @Volatile
-        private var cfKillerSingleton: FlareSolverrInterceptor? = null
-
         @Synchronized
         private fun cfKillerSingleton(): FlareSolverrInterceptor =
-            cfKillerSingleton ?: FlareSolverrInterceptor()
-                .also { cfKillerSingleton = it }
+            // One interceptor for the whole extension, so the provider, the
+            // fan-out and both dedicated resolvers share a single cached
+            // clearance instead of each solving the same host.
+            CloudflareGate.interceptor()
 
     }
 

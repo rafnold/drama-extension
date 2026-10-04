@@ -70,7 +70,16 @@ class DevcorpResolver {
      */
     fun resolve(pageUrl: String, preFetchedHtml: String? = null): ResolveResult {
         return try {
-            val html = preFetchedHtml ?: Http.get(pageUrl).text
+            val html = preFetchedHtml ?: Http.get(
+                pageUrl,
+                // MUST go through the shared Cloudflare interceptor: this page
+                // is on k-drama.in, so a plain request gets a 403 challenge
+                // whenever the clearance is not already cached, and with no
+                // iframe in the body this resolver would silently return
+                // EMPTY. Sharing KDramaIn's single instance also means it
+                // reuses the cookie that provider already solved.
+                interceptor = CloudflareGate.interceptor(),
+            ).text
             if (html.isBlank()) return ResolveResult.EMPTY
 
             val iframe = iframeRe.find(html)?.groupValues?.get(1)

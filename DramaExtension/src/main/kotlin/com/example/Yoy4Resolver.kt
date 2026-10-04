@@ -170,13 +170,11 @@ class Yoy4Resolver {
     }
 
     /**
-     * Shared Cloudflare interceptor for the yoy4 proxy fetch - the same
-     * generic FlareSolverr-backed one the catalog uses.
+     * Shared Cloudflare interceptor for the yoy4 proxy fetch.
+     *
+     * Routed through [CloudflareGate] so it reuses the same cached clearance the
+     * provider and DevcorpResolver use, instead of paying a separate
+     * FlareSolverr solve for the same host.
      */
-    @Volatile
-    private var killerSingleton: okhttp3.Interceptor? = null
-
-    @Synchronized
-    private fun killer(): okhttp3.Interceptor =
-        killerSingleton ?: FlareSolverrInterceptor().also { killerSingleton = it }
+    private fun killer(): okhttp3.Interceptor = CloudflareGate.interceptor()
 }
