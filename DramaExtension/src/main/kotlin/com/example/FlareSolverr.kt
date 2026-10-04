@@ -105,6 +105,7 @@ class FlareSolverr(
         referer: String? = null,
         headers: Map<String, String> = emptyMap(),
         session: String? = null,
+        renderWaitMs: Int = 0,
     ): Cleared? {
         val endpoint = baseUrl.trimEnd('/') + "/v1"
         val payload = JSONObject().apply {
@@ -114,6 +115,24 @@ class FlareSolverr(
             if (!session.isNullOrBlank()) put("session", session)
             if (referer != null) put("referer", referer)
             if (headers.isNotEmpty()) put("headers", JSONObject(headers))
+            // Pages that build their payload in JavaScript have no usable DOM
+            // until the scripts run. Verified 2026-10-04 on k-drama.in server 6
+            // (`yoy4.php`): the served HTML contains **no <iframe> at all** and
+            // the `kisskh.megaplay.su/...` embed only appears after ~6 s. A
+            // caller scraping an embed URL out of the body must therefore ask
+            // for a render wait, or it will find nothing and report "no source".
+            if (renderWaitMs > 0) {
+                put(
+                    "postDataScripts",
+                    org.json.JSONArray().put(
+                        JSONObject().apply {
+                            put("script", "await new Promise(r=>setTimeout(r,$renderWaitMs));")
+                            put("mouseMoved", false)
+                            put("loadWait", renderWaitMs)
+                        },
+                    ),
+                )
+            }
         }
 
         val body = try {

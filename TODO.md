@@ -9,15 +9,19 @@ before commit).
 Status columns as work lands; keep this file as the current-session handoff
 only. Release history details live in `drama-extension-state.md` (gitignored).
 
-## Current status: **v29 built locally** (2026-10-04; live `builds` branch still v28)
+## Current status: **v30 instrumented, NOT yet working on device** (2026-10-04)
 
-6 providers: DramaNice, KDrama.in, KissAsian, Dramahood, KissKH, Primeshows
-(Primeshows shipped in v14 — the "5 providers" count in older notes is stale).
-HEAD is v28 (`ad2105e`, ZXC discovery); v29 below is built and compiled here but
-**not yet committed or pushed**, so the app is still serving v28.
+6 providers: DramaNice, KDrama.in, KissAsian, Dramahood, KissKH, Primeshows.
+HEAD is `b7fc33f` (**v29**), which IS pushed — `builds/plugins.json` version 29
+verified live, and the shipped `.cs3` was independently confirmed to contain the
+v29 code. Everything after that commit is **uncommitted working-tree changes**
+(the "v30" batch below).
 
-v29 = server-5 (ZXC) **subtitles** are now emitted (see the v29 section at the
-bottom). Video for that server is still unresolved; subtitles are not gated.
+**KDrama.in playback does not work on the device yet** ("No Links Found"). The
+diagnosis is not finished; v30 ships diagnostic `println`s so the next run
+reads the exact failing stage from logcat instead of guessing. Read
+`## v30 — KDrama.in playback bring-up` before touching this code again: it
+records four wrong theories I tested and disproved, so they are not re-tried.
 
 Recent releases:
 - **v28** (2026-10-04, commit `ad2105e`): ZXC (server 5) discovery — reproduces
@@ -408,6 +412,134 @@ what `vid.log` (kept at the repo root, untracked) contains.
   but `sessions.create` + `request.get` on the andromeda URL returns the **SPA
   shell, not the playlist** — that endpoint is context-sensitive, so a
   headless fetch is not a substitute for the direct chain above.
+
+## v30 — KDrama.in playback bring-up (2026-10-04, UNCOMMITTED, still broken)
+
+**Goal:** make KDrama.in episodes play, and list **every** working server rather
+than one (explicit owner requirement).
+
+**State: not working.** Device shows `No Links Found`. What *is* proven working is
+recorded below, and so is what is not. This section is long because the failure
+was diagnosed wrongly four times; the negative results are the valuable part.
+
+### What is VERIFIED working (do not re-verify)
+
+| Fact | Evidence |
+|---|---|
+| All7 server URLs, read from the live page's own `switchServer()` | FlareSolverr session on `watch.php?id=275102` |
+| **Server 6 (YOY) plays.** `yoy4.php` → iframe `kisskh.megaplay.su/kisskh/224433` → m3u8 + 6 `.srt` → playlist **200 / 534 segments** → segment **200, 390 MB, magic `47401110`** (MPEG-TS) | full chain, several times |
+| Server 6's playlist **requires the self-referer** `https://kisskh.megaplay.su/`. With a k-drama.in referer → `403 {"error":...}` | both variants measured |
+| **Server 7 is dead**, not merely Hindi: its page renders the literal error `HAPI returned HTTP 403.` even with valid `cf_clearance` | rendered through FlareSolverr |
+| **Server 3's CDN is down**: `aapanel.devcorp.me/assets/….m3u8` → **502** for every UA/referer; also dead in the owner's browser | reproduced 4×, plus user |
+| Server 1 (vidsync) → **521**, and hangs **20.5 s** before failing | 2× measured |
+| Server 4 (vidzee) → 200 but no source for these titles | matches the older v17 note about `languages:[]` |
+| Phone and laptop share **one egress IP `178.84.195.10` (NL)** — a datacenter IP, which is why Cloudflare challenges it | `/cdn-cgi/trace` from both |
+| k-drama.in **403s every OkHttp client** from that IP (`challenge-platform`, "Just a moment...") — including from the phone's own shell | `adb shell curl` → 403 |
+| **FlareSolverr clears it**: solved session returns real pages, and a `cf_clearance` replayed with curl works (200, 20 cards) | verified from host and phone |
+| Cold solve ≈ **11.7 s**; in-session fetch ≈ **0.4–0.8 s** | many samples |
+| A **stateless** solve intermittently returns `"Challenge solved!"` **and still serves the challenge page** (`cf: True`). An **in-session** solve returns real content first time | reproduced from the phone; 6/6 clean in-session |
+
+### THE ACTUAL BLOCKER (fixed, and it did change behaviour)
+
+**The app could never reach FlareSolverr, because it is plain HTTP.**
+
+- Host app is `targetSdk=36` with **no `usesCleartextTraffic` flag** → Android
+  blocks cleartext. The old default was `http://192.168.1.20:8191`.
+- Proof: after a full episode attempt, **FlareSolverr's own session list was
+  untouched** — not one request had arrived. The app log showed
+  `SocketTimeoutException` then `No Links Found` in under a second.
+- `adb shell curl` from the phone reached 192.168.1.20 fine, so this is the
+  **app's** network policy, not the network.
+
+Fix: serve the solver over **HTTPS via Tailscale** — no port-forward, no DDNS:
+
+```
+# on the T470p
+sudo tailscale serve --bg 8191          # note the SPACE; --bg8191 is invalid
+# -> https://t470p.wildebeest-ayu.ts.net/
+```
+
+`SiteConfig.defaults().flareSolverrUrl` is now
+`https://t470p.wildebeest-ayu.ts.net`. Verified from the phone:
+`curl https://t470p.wildebeest-ayu.ts.net/health` → `{"status":"ok"}`, and a
+request reusing the app's own session returns **150,424 bytes with
+`"Challenge not detected!"`**. So the app now genuinely reaches the solver and
+holds valid clearance.
+
+**Consequence:** the solver is reachable only while Tailscale is up, so
+playback is **home-network only**. Off-tailnet the app cannot solve — and a
+`cf_clearance` solved at home would not validate from another egress IP anyway,
+since Cloudflare binds it to the solving IP. Not fixable in code.
+
+### The SPA bug (real, fixed, verified)
+
+`yoy4.php` is a **JavaScript SPA**: its served HTML contains **no `<iframe>` at
+all**, and the `kisskh.megaplay.su` embed only appears after ~6 s of scripting.
+`Yoy4Resolver` grepped the raw HTML, found nothing, returned EMPTY — so the one
+server that actually works was silently skipped.
+
+`FlareSolverr.fetchCleared` gained `renderWaitMs`, which emits `postDataScripts`
+with an explicit wait; `Yoy4Resolver` now falls back to
+`CloudflareGate.interceptor().renderedHtml(..., waitMs = 7000)` when the raw body
+has no iframe. Verified: raw → NONE, rendered (0.5 s) → iframe found → m3u8 →
+playlist → 390 MB segment.
+
+### Other real changes in v30
+
+- `Concurrency.fanOut` now drains futures **by completion** (1.5 s slices,
+  rotating a not-yet-done future to the back) instead of in submission order.
+- `DevcorpResolver` + `Yoy4Resolver` now run **concurrently with** the fan-out
+  (submitted to the pool before `resolveAll`) instead of sequentially after it.
+- `TOTAL_BUDGET_MS` 20 s → **40 s** (a cold solve is 11.7 s).
+- Challenge detection is no longer status-code-only: `looksLikeChallenge()`
+  checks body markers (`challenge-platform`, `cf-challenge-running`,
+  `Just a moment...`), because a 200 can carry an interstitial. One retry via
+  the persistent session when FlareSolverr returns one.
+- Server 7 removed from the fan-out; **every** resolving server is now emitted
+  (the `if (!added)` short-circuits are gone), each labelled
+  (`Server 3 (moviebox)`, `Server 6 (YOY)`, …) and deduped by URL.
+- `Http.postJson` gained a `headers` param (the `Origin` header is load-bearing on
+  `/backend/willierevillame`); the two FlareSolverr call sites were switched to a
+  named `timeoutMs` so the new positional param could not swallow their argument.
+- Diagnostic `println`s added in `FlareSolverrInterceptor` (`[cf] …`) and
+  `Yoy4Resolver` (`[yoy] …`) — see "Next step" below.
+
+### Four WRONG theories — tested and disproved, do not retry
+
+1. **"The app's `usesWebView` permission is missing."** Not it; unrelated to the
+   failure and unverifiable from outside.
+2. **"`fanOut`'s input-order waiting starved the live servers."** I fixed this
+   (it is a genuine robustness bug) and then **simulated both versions with the
+   real measured latencies: OLD also survives 6/6** at a 40 s budget. It was not
+   the cause of `No Links Found`; only the ordering differs.
+3. **"A 200-with-interstitial is the deterministic failure."** Measured 6/6 cold
+   solves returning **clean** pages. It is intermittent, not deterministic — which
+   is why the body-marker check is worth keeping but was not the fix.
+4. **"The `IOException: Canceled` came from a starved budget."** Real in the log
+   (`f.cancel(true)` → OkHttp `IOException: Canceled`), but not from starvation.
+   Source still unidentified.
+
+Also: `Server 1 (loklok)` in the log is Devcorp's **own** label from the page, not
+the site's server numbering — do not confuse the two.
+
+### Next step (exact)
+
+1. Force-stop CloudStream, reopen, open KDrama.in → The Scandal → Episode 1.
+2. `adb -s 192.168.1.17:44491 logcat -d | grep -E '\[cf\]|\[yoy\]|No Links'`
+3. Those lines name the failing stage:
+   - `[cf] challenge on <host> (cached=…) -> solving` — interception reached
+   - `[cf] solve FAILED … null=/blank=/stillChallenge=` — solve outcome
+   - `[yoy] no iframe in raw HTML` / `[yoy] iframe=…` — SPA render
+   - `[yoy] no m3u8 …` / `[yoy] playlist probe HTTP nnn` / `[yoy] OK playlist`
+4. **Once it works, strip the `println`s** or keep them — they are cheap and they
+   are the only visibility into this layer.
+
+### Still true from before
+
+- Server 5 **video** stays unresolved (`link` is an AES-CBC envelope; the
+  andromeda `url`/`header` pair is neither the `link` nor the `token`). Its
+  **subtitles** do work and are emitted in v29.
+- `v29` is pushed and live; this v30 batch is **not committed**.
 
 ## Next steps
 

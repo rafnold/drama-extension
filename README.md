@@ -13,8 +13,36 @@ that hide their streams behind encrypted/JS player chains.
 | `KissAsian` | https://wwv21.kissasian.com.lv/ | K/C/J/TH/HK/TW/PH drama + movies (WordPress site, 477-series catalog). 13 tabs (Popular + 7 country archives + Latest + 4 genre archives fantasy/historical/romance/action, paginated). Search via WordPress REST `series?search=` (the on-site `?s=` search is client-side only). The player embed page is deliberately empty — the extension calls the runtime endpoint `player_source.php?episode=N` on the embed host to get the final M3U8 list (dramav2 + drama3 CDNs), with legacy in-page regexes as fallback. Subtitles come from the player page's Referer-gated `subApi` (signed `.srt` URLs). |
 | `Dramahood` | https://dramahood.mom | K/C/J drama + KShows (WordPress site). 4 tabs (Drama, KShow + two "latest releases" archives, paginated). Server-rendered catalog and `?s=` search. Episodes embed one of three player hosts, each with its own decryption chain (AES-256-CBC hex-key, AES-256-CBC fixed key, or XOR+base64 JSON) — all resolved to the final m3u8. No subtitle files are shipped by the site. |
 | `KissKH` | https://kisskh.or.at | K-drama + movies (WordPress "dramastream" theme). 9 tabs (All, Dramas, Movies + 6 genre archives fantasy/historical/romance/action/sci-fi/thriller, paginated) + `?s=` search. Series episodes resolve through a two-hop chain: `data-matrix-vault` (double base64 JSON) → `kisskh.megaplay.su` embed → `#player-payload` JSON → M3U8 + `.srt` subtitle tracks (Referer-gated). Movies resolve from the same vault's per-server iframes: `moviesapi.to` (vidora API, needs `x-player-key` + Referer/Origin) or `vidmoly.biz` (m3u8 embedded in the page). |
+| `Primeshows` | https://primeshows.org | Streaming-platform catalog (Netflix, Prime, Disney+…) plus trending/latest. Catalog, detail and episodes all come from the site's **TMDB proxy** (`/api/proxy/tmdb?endpoint=…`), so no API key is needed. Sources come from `api.wecollege.net`: a `seed?mediaId=<tmdb>` call returns a seed string, `/miami/sources?...&enc=2&seed=…` returns a base64url ciphertext, and `VidyDecrypt` reverses it (XOR PRNG keystream → `"mvm1"` magic → JSON `sources[]`) into direct m3u8 links that need `referer=https://www.vidy.st/`. English subtitles are read from the same decrypted payload. |
 
 All providers support home page browsing, search, TV series and movie loading.
+
+## Cloudflare and the FlareSolverr dependency
+
+`KDrama.in` sits behind a Cloudflare managed challenge that challenges every
+non-browser client — including this app's HTTP stack. Resolving it needs a real
+headful browser, which the host app's own `CloudflareKiller` WebView does not
+provide (verified: the challenge does not yield to it). The extension therefore
+delegates the solve to an external **FlareSolverr** instance.
+
+That endpoint **must be HTTPS**. The host app targets SDK 36 without
+`usesCleartextTraffic`, so Android blocks any plain-`http://` request the
+extension makes — a `http://` LAN address silently never connects, and the
+symptom is an empty source list with no error. The recommended way to get a
+valid certificate for a LAN service is Tailscale:
+
+```sh
+# on the machine running FlareSolverr
+sudo tailscale serve --bg 8191        # note the space; --bg8191 is invalid
+```
+
+The URL is configured via `SiteConfig.flareSolverrUrl()` — remote `config.json`
+or the `FLARESOLVERR_URL` env var override the built-in default, and an empty
+value disables the mechanism entirely.
+
+Note that this makes playback dependent on that endpoint being reachable: a
+`cf_clearance` cookie is bound to the IP that solved it, so a solve obtained on
+one network will not satisfy a request from another.
 
 ## Building
 

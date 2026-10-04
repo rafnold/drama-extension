@@ -53,6 +53,15 @@ class Yoy4Resolver {
         /** Gate for the m3u8 + .srt: the kisskh host itself. */
         private const val MEGA_REFERER = "https://kisskh.megaplay.su/"
 
+        /**
+         * How long the SPA gets to build its DOM before we scrape it.
+         *
+         * Measured 2026-10-04: 6 s is enough for `yoy4.php` to inject the
+         * kisskh embed, and 7 s leaves a margin. FlareSolverr's own default
+         * (no wait) returns the pre-script DOM, which has no iframe at all.
+         */
+        private const val RENDER_WAIT_MS = 7_000
+
         private val iframeRe = Regex("src=\"(https://kisskh\\.megaplay\\.su/[^\"]+)\"")
         private val m3u8Re = Regex("(https://kisskh\\.megaplay\\.su/vid/[^\"\\s<]+\\.m3u8)")
         private val srtRe = Regex("(https://kisskh\\.megaplay\\.su/sub/[^\"\\s<]+\\.srt)")
@@ -95,14 +104,41 @@ class Yoy4Resolver {
             val episode = Regex("episode=(\\d+)").find(data)?.groupValues?.get(1) ?: "1"
 
             val yoyUrl = "$PAGE_REFERER" + "yoy4.php?id=$id&s=$season&e=$episode"
-            val yoyHtml = Http.get(
+            // `yoy4.php` is a JavaScript SPA: the served HTML contains **no <iframe>
+            // at all** and the kisskh.megaplay.su embed only appears once the
+            // page's scripts run (~6 s, verified 2026-10-04). So the raw body
+            // is tried first (cheap) and, when it has no iframe, the page is
+            // re-fetched through FlareSolverr with an explicit render wait.
+            //
+            // Without this second step the resolver returned EMPTY on every
+            // SPA-rendered server-6 page - which is the server that actually
+            // carries the title (verified: playlist 200 / 534 segments /
+            // 390 MB MPEG-TS) - so loadLinks had nothing to offer but the dead
+            // Devcorp link and CloudStream reported "Bad http status" (2004).
+            var yoyHtml = Http.get(
                 yoyUrl,
                 headers = mapOf("User-Agent" to UA, "Referer" to PAGE_REFERER),
                 interceptor = killer(),
             ).text
 
-            val playerUrl = iframeRe.find(yoyHtml)?.groupValues?.get(1)
-                ?: return ResolveResult.EMPTY
+            var playerUrl = iframeRe.find(yoyHtml)?.groupValues?.get(1)
+            if (playerUrl == null) {
+                ExtLog.log("yoy", "no iframe in raw HTML -> rendered fetch (${yoyHtml.length} B)")
+                yoyHtml = CloudflareGate.interceptor().renderedHtml(
+                    yoyUrl,
+                    referer = PAGE_REFERER,
+                    waitMs = RENDER_WAIT_MS,
+                ) ?: run {
+                    ExtLog.log("yoy", "rendered fetch returned null")
+                    return ResolveResult.EMPTY
+                }
+                playerUrl = iframeRe.find(yoyHtml)?.groupValues?.get(1)
+                ?: run {
+                    ExtLog.log("yoy", "still no iframe after render (${yoyHtml.length} B)")
+                    return ResolveResult.EMPTY
+                }
+            }
+            ExtLog.log("yoy", "iframe=$playerUrl")
 
             val playerHtml = Http.get(
                 playerUrl,
@@ -110,7 +146,11 @@ class Yoy4Resolver {
             ).text
 
             val m3u8 = m3u8Re.find(playerHtml)?.groupValues?.get(1)
-                ?: return ResolveResult.EMPTY
+                ?: run {
+                    ExtLog.log("yoy", "no m3u8 in player payload (${playerHtml.length} B)")
+                    return ResolveResult.EMPTY
+                }
+            ExtLog.log("yoy", "m3u8=$m3u8")
 
             // The playlist needs the self-referer; fetch it once so a dead
             // playlist is reported as "no sources" here rather than failing
@@ -119,9 +159,16 @@ class Yoy4Resolver {
                 m3u8,
                 headers = mapOf("User-Agent" to UA, "Referer" to MEGA_REFERER),
             )
-            if (probe.code != 200) return ResolveResult.EMPTY
+            if (probe.code != 200) {
+                ExtLog.log("yoy", "playlist probe HTTP ${probe.code}")
+                return ResolveResult.EMPTY
+            }
             val playlist = probe.text
-            if (!playlist.contains("#EXTM3U")) return ResolveResult.EMPTY
+            if (!playlist.contains("#EXTM3U")) {
+                ExtLog.log("yoy", "playlist is not m3u8 (${playlist.length} B)")
+                return ResolveResult.EMPTY
+            }
+            ExtLog.log("yoy", "OK playlist ${playlist.length} B")
 
             val subs = LinkedHashMap<String, ResolvedSubtitle>()
             for (m in srtRe.findAll(playerHtml)) {

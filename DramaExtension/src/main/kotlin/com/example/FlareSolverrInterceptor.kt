@@ -66,9 +66,71 @@ class FlareSolverrInterceptor(
     companion object {
         private val ERROR_CODES = listOf(403, 503)
         private val CLOUDFLARE_SERVERS = listOf("cloudflare-nginx", "cloudflare")
+
+        /**
+         * Markers of a Cloudflare interstitial **inside a 200 response**.
+         *
+         * FlareSolverr does not return a 403 when it fails to clear a challenge:
+         * it returns HTTP 200 whose body is still the "Just a moment..." page
+         * with `challenge-platform` in its CSP. Verified 2026-10-04 against
+         * 3.5.2 on k-drama.in:
+         *
+         *  - 1st request in a fresh session: 11.3 s, **200, cf_challenge=True**,
+         *    cookies `['cf_clearance']` - i.e. it hands back the challenge page.
+         *  - 2nd request in the same session: **0.4 s, 200, cf_challenge=False**,
+         *    real content.
+         *
+         * So a status-code-only check ([ERROR_CODES]) misses the *first* failure
+         * entirely and we returned the challenge body to the caller as if it were
+         * the page - no iframe in it, every resolver empty, and CloudStream
+         * reporting "Bad http status" (observed on device 2026-10-04).
+         */
+        private val CHALLENGE_BODY_MARKERS = listOf(
+            "challenge-platform",
+            "cf-challenge-running",
+            "Just a moment...",
+            "Checking your browser before accessing",
+        )
+
+        /** True when [body] is a Cloudflare interstitial rather than real content. */
+        fun looksLikeChallenge(body: String?): Boolean {
+            if (body.isNullOrBlank()) return false
+            val head = body.take(4096)
+            return CHALLENGE_BODY_MARKERS.any { head.contains(it, ignoreCase = true) }
+        }
+    }
+
+    /**
+     * Fetches [url] through FlareSolverr **with the page's JavaScript allowed
+     * to run**, returning the rendered DOM.
+     *
+     * Needed for pages that inject their payload client-side. Verified
+     * 2026-10-04 on k-drama.in's server 6: `yoy4.php` ships no `<iframe>` in
+     * its HTML and only reveals the `kisskh.megaplay.su` embed after ~6 s of
+     * scripting, so a plain fetch leaves an embed-scraping resolver with nothing
+     * to match. Uses the same session as the main interceptor so no second
+     * Cloudflare solve is paid.
+     *
+     * Returns null when FlareSolverr is unconfigured, unreachable, or still
+     * hands back a challenge page - callers treat that as "no source".
+     */
+    fun renderedHtml(url: String, referer: String? = null, waitMs: Int): String? {
+        val solver = (CloudflareGate.interceptor() as FlareSolverrInterceptor)
+            .renderedSolver() ?: return null
+        val result = solver.fetchCleared(
+            url,
+            referer = referer,
+            session = FlareSolverr.DEFAULT_SESSION,
+            renderWaitMs = waitMs,
+        ) ?: return null
+        if (result.html.isBlank() || looksLikeChallenge(result.html)) return null
+        return result.html
     }
 
     private val solver = baseUrl?.takeIf { it.isNotBlank() }?.let { FlareSolverr(it) }
+
+    /** The configured solver, or null when FlareSolverr is not configured. */
+    fun renderedSolver(): FlareSolverr? = solver?.also { ensureSession(it) }
 
     /**
      * Solved clearance per host: cookie header -> matching UA.
@@ -119,11 +181,23 @@ class FlareSolverrInterceptor(
         val cached = synchronized(lock) { cleared[host] }
         val warm = if (cached != null) withClearance(original, cached.first, cached.second) else null
 
-        // The one and only proceed() for this chain.
+        // A response can be a challenge in TWO ways, and we must catch both:
+        //  - the usual 403/503 from Cloudflare, and
+        //  - **HTTP 200 whose body is the interstitial**, which is what
+        //    FlareSolverr returns when it solved in its own browser but the
+        //    clearance it captured does not validate for the URL we asked
+        //    (verified 2026-10-04; see CHALLENGE_BODY_MARKERS).
         val response = if (warm != null) chain.proceed(warm) else chain.proceed(original)
-        if (!isChallenge(response)) return response
-
-        response.close()
+        if (!isChallenge(response)) {
+            val ok = response.peekBody(4096).string()
+            if (!looksLikeChallenge(ok)) return response
+            // 200-with-interstitial: Cloudflare served a challenge page to a
+            // plain client even though we thought we had clearance. Treat it
+            // exactly like a 403 - drop the stale cache and go solve.
+            response.close()
+        } else {
+            response.close()
+        }
 
         // Stale cache: either Cloudflare rotated the clearance, or this
         // device's egress IP differs from the solving one (off the shared LAN)
@@ -144,17 +218,43 @@ class FlareSolverrInterceptor(
             return emptyChallenge(original)
         }
 
+        // Device logcat is the only place this can be observed (the app
+        // suppresses nothing, and stdout reaches logcat as System.out).
+        // Naming the host and whether we had a cached clearance is what makes
+        // a "No Links Found" report diagnosable instead of a guessing loop.
+        ExtLog.log("cf", "challenge on $host cached=${cached != null} -> solving")
+
         // A rejected replay means replay is useless for this device, so go
         // through FlareSolverr's persistent session instead of paying a fresh
         // ~11.6 s solve on every single request.
-        val result = if (hadCache) {
+        //
+        // Retry once: measured 2026-10-04, FlareSolverr's FIRST request in a
+        // fresh session returns the challenge page even though it reports
+        // success and hands back a cf_clearance cookie; the SECOND request,
+        // with that cookie now cached, returns the real page in 0.4 s. So a
+        // single solve attempt is not enough - without this retry every cold
+        // start failed.
+        var result = if (hadCache) {
             fetchViaSession(solver, original) ?: solver.fetchCleared(original.url.toString())
         } else {
             solver.fetchCleared(original.url.toString())
         }
-        if (result == null || result.html.isBlank()) {
+        if (result != null && looksLikeChallenge(result.html)) {
+            // Solving happened but the answer is still an interstitial: re-ask
+            // through the persistent session, which reuses FlareSolverr's own
+            // live browser + clearance and therefore answers correctly.
+            result = fetchViaSession(solver, original)
+        }
+        if (result == null || result.html.isBlank() || looksLikeChallenge(result.html)) {
+            ExtLog.log(
+                "cf",
+                "solve FAILED $host null=${result == null} " +
+                    "blank=${result?.html?.isBlank()} " +
+                    "stillChallenge=${result?.let { looksLikeChallenge(it.html) }}",
+            )
             return emptyChallenge(original)
         }
+        ExtLog.log("cf", "solved $host ${result.html.length} bytes")
 
         result.cookie?.takeIf { it.isNotBlank() }?.let { c ->
             result.userAgent?.takeIf { it.isNotBlank() }?.let { ua ->

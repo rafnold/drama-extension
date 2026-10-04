@@ -73,7 +73,20 @@ class ResolveContext(
     private val deadlineMs = deadlineMs
     companion object {
         const val PER_EMBED_MS = 15_000L
-        const val TOTAL_BUDGET_MS = 20_000L
+
+        /**
+         * Raised 20s -> 40s on 2026-10-04.
+         *
+         * A cold Cloudflare solve through FlareSolverr measures **11.7 s** on
+         * the owner's LAN (k-drama.in, verified twice), and a first solve that
+         * returns an interstitial costs a second round-trip on top. At the old
+         * 20 s total budget, six servers fanning out and each potentially paying
+         * that solve, the budget expired mid-flight and `loadLinks` returned
+         * nothing - which CloudStream surfaces as "Bad http status". The servers
+         * that *don't* need a solve still finish in well under a second, so the
+         * larger ceiling costs nothing when no challenge is present.
+         */
+        const val TOTAL_BUDGET_MS = 40_000L
     }
 
     fun remainingMs(default: Long = PER_EMBED_MS): Long =
@@ -129,15 +142,35 @@ object Resolvers {
      * Resolve one embed with the tiered cache (UG-5):
      *   dead tier (1 h) -> sources tier (15 min) -> resolver -> cache.
      */
-    fun resolve(ctx: ResolveContext, embedUrl: String, label: String?): ResolveResult {
-        if (Cache.isDead(embedUrl)) return ResolveResult.EMPTY
-        Cache.sources.get(embedUrl)?.let { return it }
-        val r = forHost(embedUrl) ?: return ResolveResult.EMPTY
+    fun resolve(
+        ctx: ResolveContext,
+        embedUrl: String,
+        label: String?,
+    ): ResolveResult {
+        // Record entry/exit for every embed: a resolver returning EMPTY is
+        // otherwise completely silent, which is how a whole fan-out can fail
+        // with no trace anywhere.
+        ExtLog.log("res", "enter ${label ?: "-"} $embedUrl")
+        if (Cache.isDead(embedUrl)) {
+            ExtLog.log("res", "DEAD tier $embedUrl")
+            return ResolveResult.EMPTY
+        }
+        Cache.sources.get(embedUrl)?.let {
+            ExtLog.log("res", "cache hit $embedUrl ok=${it.ok}")
+            return it
+        }
+        val r = forHost(embedUrl)
+        if (r == null) {
+            ExtLog.log("res", "NO RESOLVER for host $embedUrl")
+            return ResolveResult.EMPTY
+        }
         val result = try {
             r.resolve(ctx, embedUrl, label).dedupe()
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            ExtLog.log("res", "THREW ${t.javaClass.simpleName} ${t.message} on $embedUrl")
             ResolveResult.EMPTY
         }
+        ExtLog.log("res", "exit ok=${result.ok} src=${result.sources.size} $embedUrl")
         if (result.ok) Cache.sources.put(embedUrl, result)
         return result
     }

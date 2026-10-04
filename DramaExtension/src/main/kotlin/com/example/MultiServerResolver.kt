@@ -31,6 +31,19 @@ package com.example
  * Order matters: the site's own preferred server stays first, with the ones
  * that need extra referers/decryption last, because `emitResult` preserves
  * resolver order and CloudStream shows the first entry first.
+ *
+ * ## Server 7 is deliberately excluded
+ *
+ * `/player.php` (the site labels it "Hindi") is not offered here. Verified
+ * 2026-04 with a fully solved FlareSolverr session carrying a valid
+ * `cf_clearance`: its upstream **HAPI endpoint answers 403 regardless**, and
+ * the page renders the literal error `HAPI returned HTTP 403.` So it has no
+ * content in any language, and adding it would only spend a request and put a
+ * dead entry in the server list. (The owner also does not read Hindi.)
+ *
+ * Note that servers 2, 3, 6 are **first-party** k-drama.in paths, so they are
+ * behind the same Cloudflare challenge as the listing pages - their resolvers
+ * must go through `CloudflareGate.interceptor()` or they will 403.
  */
 class MultiServerResolver(
     private val label: String,
@@ -102,11 +115,16 @@ class MultiServerResolver(
         out += yoy4(mainUrl, id, season, episode, isMovie)
         out += kdramaInProxy(mainUrl, id, season, episode, 13)
         out += kdramaInProxy(mainUrl, id, season, episode, 2)
-        if (!isMovie) {
-            out += kdramaInPlayer(mainUrl, id, season, episode)
-        }
         out += vidzee(id, season, episode, isMovie)
         out += zxcstream(id, season, episode, isMovie)
+        // kdramaInPlayer (server 7) is intentionally NOT added - see the class
+        // KDoc: its upstream HAPI endpoint 403s even with a solved challenge.
+        //
+        // The vidsync primary is NOT in this list either: KDramaIn passes it as
+        // the first task itself, and it is measured at **20.5 s** to fail while
+        // every live server answers in well under a second. Left at the head of
+        // the queue it used to starve the rest of the fan-out (see
+        // Concurrency.fanOut), so a slow dead host must not occupy a slot.
         return out.map { EmbedTask(it, label) }
     }
 }

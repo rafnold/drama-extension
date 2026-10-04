@@ -116,13 +116,42 @@ These are the technical agreements made while building this CloudStream 3 extens
 3. **Build**: `./gradlew :DramaExtension:assembleRelease` (and the compile check earlier).
 4. **Commit** with a versioned message (`v5: ...`), push, let CI build.
 
-## 8. Session discipline
+## 9. Device verification needs a log, and the log is the deliverable
 
-- Small, verifiable steps — one chain at a time (cards → detail → episodes → player → source API
-  → subtitles). Verify each against the live site before building the next.
+- **A provider that renders empty with no error usually means a swallowed
+  exception** (see AI_RULES §1: everything is wrapped in `catch (_: Throwable)`),
+  so the failure is invisible by construction. When a device symptom is
+  "nothing happens", the fix is to make the layer **print its stage** and read
+  `adb logcat` — not to reason about it. `println` reaches logcat as `System.out`
+  for an extension (see the `[cf]` / `[yoy]` diagnostics in `FlareSolverrInterceptor`
+  and `Yoy4Resolver`).
+- **`adb logcat` shows the app's own `System.out`/`System.err`** but nothing the
+  app logs via its logger. Filter with `grep -E 'System.out|System.err|<tag>'`.
+- **Check the side system before blaming the code.** When a fetch to a
+  user-controlled endpoint "never happens", query that endpoint's own state: a
+  FlareSolverr `sessions.list` that never changes proves the request never
+  arrived, which is decisive and costs one call.
+- **The device log is worth more than an afternoon of hypotheses.** Getting the
+  log first would have skipped four wrong theories recorded in TODO.md's v30
+  section. Ask for it early.
+- **Android cleartext:** the host app is `targetSdk=36` with no
+  `usesCleartextTraffic`, so **any `http://` URL the extension requests is
+  blocked** — including a LAN service. `adb shell curl` from the phone may still
+  succeed (shell has its own policy), so a successful shell test does **not**
+  prove the app can make the call. Use `https://` (Tailscale `serve` is the
+  cheapest way to get a valid cert on a LAN service).
+
+## 10. Session discipline
+
+- Small, verifiable steps — one chain at a time (cards → detail → episodes →
+  player → source API → subtitles). Verify each against the live site before
+  building the next.
 - Keep raw evidence in `/tmp` (fetched HTML, JS, JSON responses, saved builds). Persistent
   artifacts (harness, cloudstream sources at `/workspace/tmp-artifacts/cloudstream-903ef47`,
   captured pages, stub classes) live in `/workspace/tmp-artifacts/` — note useful artifacts in
   `TODO.md` and move anything that must survive a reboot there, not `/tmp`.
-- If blocked or running out of context: finish what is in-flight into a **complete** file state
-  (no half-methods), then update `TODO.md` with the exact next step.
+- **Record disproved theories, not just successful ones.** A wrong diagnosis that
+  looks convincing will otherwise be re-derived by the next session. TODO.md's
+  v30 section lists four of them with the evidence that killed each.
+- If blocked or running out of context: finish what is in-flight into a **complete**
+  file state (no half-methods), then update `TODO.md` with the exact next step.

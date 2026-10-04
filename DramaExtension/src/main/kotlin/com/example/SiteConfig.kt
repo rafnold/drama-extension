@@ -139,11 +139,33 @@ object SiteConfig {
                     "94588293375053432799222445521289" to "5259228356829423",
                 ),
                 dead = emptyMap(),
-                // Default FlareSolverr instance on the user's LAN. Used only
-                // for Cloudflare-challenged hosts; override in
-                // drama-config/config.json or via $FLARESOLVERR_URL, and set
-                // it to "" to disable the mechanism entirely.
-                flareSolverrUrl = "http://192.168.1.20:8191",
+                // FlareSolverr endpoint, used only for Cloudflare-challenged
+                // hosts; override in drama-config/config.json or via
+                // $FLARESOLVERR_URL, and set it to "" to disable the mechanism
+                // entirely.
+                //
+                // HTTPS is REQUIRED, not a nicety: the host app is built with
+                // targetSdk 36 and does not set `usesCleartextTraffic`, so
+                // Android blocks every plain-HTTP request it makes. With the
+                // previous `http://192.168.1.20:8191` default the app could
+                // never reach the solver at all - no `cf_clearance`, so every
+                // k-drama.in request 403'd and `loadLinks` returned nothing
+                // (device symptom: `SocketTimeoutException` then
+                // `showToast = No Links Found`, with FlareSolverr's own session
+                // list completely untouched, proving no request ever arrived).
+                //
+                // Served over Tailscale rather than a router port-forward: no
+                // DDNS or public exposure is needed, and the cert is valid.
+                // Verified reachable from the phone 2026-10-04:
+                // `curl https://t470p.wildebeest-ayu.ts.net/health` ->
+                // `{"status":"ok"}`.
+                //
+                // Consequence: the solver is reachable only while Tailscale is
+                // up on the device, so playback works on the home network. Off
+                // the tailnet the app cannot solve - and a `cf_clearance` solved
+                // at home would not validate from another egress IP regardless,
+                // because Cloudflare binds it to the solving IP.
+                flareSolverrUrl = "https://t470p.wildebeest-ayu.ts.net",
             )
 
             /**
@@ -306,8 +328,14 @@ object SiteConfig {
      *
      * Point this at null/"" to disable the mechanism entirely.
      */
-    fun flareSolverrUrl(): String? =
-        env("FLARESOLVERR_URL") ?: cfg().flareSolverrUrl
+    fun flareSolverrUrl(): String? {
+        val url = env("FLARESOLVERR_URL") ?: cfg().flareSolverrUrl
+        // Worth recording: a silently blank endpoint looks exactly like a
+        // Cloudflare problem, because every fetch then 403s and loadLinks
+        // returns nothing with no error anywhere.
+        ExtLog.log("cfg", "flareSolverrUrl=${url ?: "<null>"} (env=${env("FLARESOLVERR_URL")})")
+        return url
+    }
 
     fun deadHosts(): Set<String> = cfg().dead.keys
 

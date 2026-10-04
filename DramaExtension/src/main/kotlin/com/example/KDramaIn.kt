@@ -5,6 +5,7 @@ import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import org.json.JSONObject
 import org.jsoup.nodes.Document
+import java.util.concurrent.TimeUnit
 
 
 /**
@@ -237,6 +238,12 @@ class KDramaIn : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        // Control experiment: this method definitely runs when the user opens a
+        // KDrama.in tab, so if dbg.log still does not appear afterwards then
+        // ExtLog cannot write to that path and every other absence is
+        // meaningless. If it DOES appear, the file channel works and the
+        // loadLinks silence is real.
+        ExtLog.log("kd", "getMainPage page=$page type=${request.data}")
         val url = mainUrl.removeSuffix("/") + "/dramas.php?type=${request.data}&page=${page.coerceAtLeast(1)}"
         // UG-5 dead tier: dead listing pages are not re-tried for 1 h.
         if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
@@ -331,17 +338,57 @@ class KDramaIn : MainAPI() {
         return resp
     }
 
+    /**
+     * Human label for a k-drama.in watch-page server, from its embed URL.
+     *
+     * The owner wants every working server listed by name when an episode is
+     * opened, so each emitted ExtractorLink carries the server it came from
+     * rather than a bare quality string. Returns null for URLs that are not
+     * k-drama.in server embeds (e.g. the vidsync primary), which then keeps
+     * whatever name its resolver gave.
+     *
+     * Server 7 (`/player.php`, labelled "Hindi" by the site) is absent on
+     * purpose: verified 2026-10-04 that its upstream HAPI endpoint answers
+     * **403 even through a fully solved FlareSolverr session with valid
+     * cf_clearance**, so it yields no content in any language. Including it
+     * would only cost a request and a dead entry in the list.
+     */
+    private fun serverLabel(url: String): String? {
+        val u = url.lowercase()
+        return when {
+            u.contains("/13.php/") -> "Server 2"
+            u.contains("/2.php/") -> "Server 3 (moviebox)"
+            u.contains("yoy4.php") -> "Server 6 (YOY)"
+            u.contains("vidzee") -> "Server 4 (Vidzee)"
+            u.contains("zxcstream.xyz") || u.contains("zxcprime.xyz") -> "Server 5 (ZXC)"
+            // Server 1 (vidsync) and server 7 (/player.php) intentionally absent.
+            else -> null
+        }
+    }
+
     override suspend fun loadLinks(
         data: String,
         isCasting: Boolean,
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ): Boolean {
+        // First statement on purpose: if this line never appears in logcat then
+        // CloudStream is not calling loadLinks at all, and every theory about
+        // our own code is moot. Verified reachable as `System.out` (the app's
+        // `Loaded everything` line shows stdout is not suppressed).
+        println("[kd] loadLinks ENTER data=$data")
+        ExtLog.log("kd", "loadLinks ENTER casting=$isCasting data=$data")
         return try {
-            val id = idRe.find(data)?.groupValues?.get(1) ?: return false
+            val id = idRe.find(data)?.groupValues?.get(1)
+            if (id == null) {
+                ExtLog.log("kd", "id did NOT match in data=$data")
+                return false
+            }
             val isMovie = data.contains("type=movie")
             val season = Regex("season=(\\d+)").find(data)?.groupValues?.get(1)?.toIntOrNull()
             val episode = Regex("episode=(\\d+)").find(data)?.groupValues?.get(1)?.toIntOrNull()
+            ExtLog.log("kd", "id=$id movie=$isMovie s=${season ?: 1} e=${episode ?: 1}")
+            println("[kd] loadLinks id=$id isCasting=$isCasting")
             val vb = SiteConfig.vidsyncBase()
             val embedUrl = if (isMovie) {
                 "$vb/embed/movie/$id/"
@@ -367,40 +414,94 @@ class KDramaIn : MainAPI() {
             )
 
             val ctx = ResolveContext(name, data)
-            val results = Resolvers.resolveAll(
-                ctx,
-                ResolveContext.TOTAL_BUDGET_MS,
-                tasks.toList(),
-            )
-            var added = false
-            for ((_, res) in results) {
-                if (res.ok) added = emitResult(res, name, UA, subtitleCallback, callback) || added
-            }
-
-            // Server 3 (moviebox) hides its stream and subtitles inside JSON
-            // query parameters of a player.html iframe, which the generic
-            // host-matched resolver cannot parse - it needs DevcorpResolver.
-            // This is the server that serves titles vidsync lacks (verified:
-            // "Fangs of Fortune" id=239389 - vidsync 521s, server 3 works).
-            if (!added) {
-                val devcorp = DevcorpResolver().resolve(
+            val budgetMs = ResolveContext.TOTAL_BUDGET_MS
+            val fanOutStarted = System.currentTimeMillis()
+            // The generic fan-out AND the two dedicated resolvers all run at
+            // once. They used to run back-to-back, which doubled the wall clock
+            // against one shared budget: the fan-out could spend its whole
+            // allowance, then DevcorpResolver and Yoy4Resolver (which each cost
+            // a ~12 s Cloudflare solve plus, for YOY, a 7 s render) started with
+            // nothing left and were cancelled - `IOException: Canceled` then
+            // `No Links Found` on device 2026-10-04.
+            //
+            // Yoy4Resolver is deliberately included *only* here rather than in
+            // the task list: it needs its own referer-aware walk, and its page
+            // is an SPA that only FlareSolverr can render.
+            val dedicated = Concurrency.pool.submit<List<Pair<String, ResolveResult>>> {
+                val acc = mutableListOf<Pair<String, ResolveResult>>()
+                // Server 3 (moviebox) hides its stream and subtitles inside JSON
+                // query parameters of a player.html iframe, which the generic
+                // host-matched resolver cannot parse - it needs DevcorpResolver.
+                // This is the server that serves titles vidsync lacks (verified:
+                // "Fangs of Fortune" id=239389 - vidsync 521s, server 3 works).
+                acc += "Server 3 (moviebox)" to DevcorpResolver().resolve(
                     MultiServerResolver.kdramaInProxy(
                         mainUrl, id, season ?: 1, episode ?: 1, 2,
-                    )
+                    ),
                 )
-                if (devcorp.ok) {
-                    added = emitResult(devcorp, name, UA, subtitleCallback, callback)
-                }
+                // Server 6 (YOY -> kisskh.megaplay.su) likewise.
+                acc += "Server 6 (YOY)" to Yoy4Resolver().resolve(data)
+                acc
             }
 
-            // Server 6 (YOY -> kisskh.megaplay.su) needs its own referer-aware
-            // walk rather than the generic resolver, so it stays a last resort
-            // after everything above has had a turn.
-            if (!added) {
-                val yoy = Yoy4Resolver().resolve(data)
-                if (yoy.ok) {
-                    added = emitResult(yoy, name, UA, subtitleCallback, callback)
+            val results = Resolvers.resolveAll(ctx, budgetMs, tasks.toList())
+            ExtLog.log("kd", "fan-out done: ${results.size} results")
+            // Whatever the fan-out left of the shared budget, capped so a
+            // pathological case cannot block the UI thread for minutes.
+            val dedicatedWaitMs =
+                (budgetMs - (System.currentTimeMillis() - fanOutStarted))
+                    .coerceIn(2_000L, 30_000L)
+
+            // Emit EVERY server that resolves, not just the first.
+            //
+            // The owner asked for all servers listed when an episode is opened,
+            // so this used to be the wrong shape twice over: `emitResult` was
+            // only reached while a previous result was still false, and the
+            // dedicated resolvers below were each gated behind `if (!added)`.
+            // Effect on device: one working server suppressed the others, and a
+            // title served by two servers showed only one. Verified 2026-10-04
+            // for "The Scandal" (id=275102) s1e1, where servers 3 AND 6 both
+            // carry the episode but only one was listed.
+            var added = false
+            val seenUrls = LinkedHashSet<String>()
+            for ((url, res) in results) {
+                if (!res.ok) continue
+                // CloudStream shows each ExtractorLink's own `name`, so the
+                // per-server label rides on the resolved source name instead of
+                // on emitResult (whose `source` arg is the provider name).
+                val label = serverLabel(url)
+                val named = if (label != null && res.sources.all { it.name.isBlank() }) {
+                    res.copy(sources = res.sources.map { it.copy(name = label) })
+                } else {
+                    res
                 }
+                // The same URL can arrive from both the fan-out and the
+                // dedicated resolvers (e.g. /2.php is a task AND
+                // DevcorpResolver's target) - emit it once.
+                val fresh = named.copy(
+                    sources = named.sources.filter { seenUrls.add(it.url) },
+                )
+                if (fresh.sources.isEmpty()) continue
+                added = emitResult(fresh, name, UA, subtitleCallback, callback) || added
+            }
+
+            val dedicatedResults = try {
+                dedicated.get(dedicatedWaitMs, TimeUnit.MILLISECONDS)
+            } catch (_: Throwable) {
+                null
+            }
+            dedicatedResults?.forEach { (label, res) ->
+                if (!res.ok) return@forEach
+                ExtLog.log("kd", "dedicated $label ok sources=${res.sources.size}")
+                val named = res.copy(
+                    sources = res.sources
+                        .filter { seenUrls.add(it.url) }
+                        .map { s ->
+                            if (s.name.isBlank()) s.copy(name = label) else s
+                        },
+                )
+                if (named.sources.isEmpty()) return@forEach
+                added = emitResult(named, name, UA, subtitleCallback, callback) || added
             }
 
             // Server 5 (zxcstream.icu) - discovery only, no source emitted.
@@ -425,36 +526,38 @@ class KDramaIn : MainAPI() {
             // English included, and the .srt downloads clean). Those are emitted
             // below, so server 5 still contributes something real to the
             // episode while its video stays unresolved.
-            if (!added) {
-                val zxcSubs = ZxcSubtitleResolver.subtitlesFor(
-                    id = id,
-                    season = season ?: 1,
-                    episode = episode ?: 1,
-                    isMovie = isMovie,
+            // NOT gated on `added`: these are subtitles, not a competing video source, so
+            // they should be offered for the episode regardless of which servers
+            // resolved. Gating them meant that whenever servers 3/6 worked (the
+            // common case) the server-5 English track silently never appeared.
+            val zxcSubs = ZxcSubtitleResolver.subtitlesFor(
+                id = id,
+                season = season ?: 1,
+                episode = episode ?: 1,
+                isMovie = isMovie,
+            )
+            for ((_, sub) in zxcSubs) {
+                // emitResult handles the isCasting / dedupe / callback
+                // plumbing, but it needs a source too, so hand the subtitle
+                // to the same emission path directly.
+                subtitleCallback(
+                    // Verified via javap on cloudstream.jar: SubtitleFile's
+                    // only constructor is (lang, url); `headers` is a
+                    // mutable property, not a third parameter.
+                    SubtitleFile(sub.lang, sub.url).also {
+                        it.headers = sub.headers
+                    },
                 )
-                for ((_, sub) in zxcSubs) {
-                    // emitResult handles the isCasting / dedupe / callback
-                    // plumbing, but it needs a source too, so hand the subtitle
-                    // to the same emission path directly.
-                    subtitleCallback(
-                        // Verified via javap on cloudstream.jar: SubtitleFile's
-                        // only constructor is (lang, url); `headers` is a
-                        // mutable property, not a third parameter.
-                        SubtitleFile(sub.lang, sub.url).also {
-                            it.headers = sub.headers
-                        },
-                    )
-                }
-                if (zxcSubs.isNotEmpty()) {
-                    // android.util.Log is unavailable in this module's JVM harness
-                    // (NoClassDefFoundError), and the repo has no logging wrapper,
-                    // so use stdout - which is what reaches device logcat as
-                    // System.out for an extension.
-                    println(
-                        "[$name] zxc(server 5) subtitles: " +
-                            "${zxcSubs.size} languages (${zxcSubs.keys.joinToString()})",
-                    )
-                }
+            }
+            if (zxcSubs.isNotEmpty()) {
+                // android.util.Log is unavailable in this module's JVM harness
+                // (NoClassDefFoundError), and the repo has no logging wrapper,
+                // so use stdout - which is what reaches device logcat as
+                // System.out for an extension.
+                println(
+                    "[$name] zxc(server 5) subtitles: " +
+                        "${zxcSubs.size} languages (${zxcSubs.keys.joinToString()})",
+                )
             }
             if (!added) {
                 val zxc = ZxcResolver.probe(
@@ -474,10 +577,16 @@ class KDramaIn : MainAPI() {
                 // System.out for an extension.
                 if (zxc.isNotEmpty()) {
                     println("[$name] zxc discovery (no playable source): $zxc")
+                    ExtLog.log("kd", "zxc ladder: $zxc")
                 }
             }
+            ExtLog.log("kd", "DONE added=$added")
             added
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            // This blanket catch is exactly why every earlier failure was
+            // invisible: it returned false with nothing recorded anywhere, and
+            // CloudStream reported only "No Links Found". Always log it.
+            ExtLog.log("kd", "THREW ${t.javaClass.simpleName}: ${t.message} @ ${t.stackTrace.take(4)}")
             false
         }
     }
