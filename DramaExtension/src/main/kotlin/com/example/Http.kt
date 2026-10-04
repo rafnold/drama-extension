@@ -113,10 +113,17 @@ object Http {
      * spend ~120 s clearing a challenge, and NiceHttp's default is far shorter
      * (observed on device as `SocketTimeoutException` thrown out of
      * `FlareSolverrInterceptor.intercept`).
+     *
+     * [headers] is sent verbatim. Some JSON POST endpoints reject a request
+     * that lacks a same-origin `Origin` and answer `200 {"success":false,
+     * "error":"Internal Server Error"}` rather than a 4xx, which is very hard to
+     * diagnose from the response alone (verified on k-drama.in server 5's
+     * `/backend/willierevillame`, see ZxcSubtitleResolver).
      */
     fun postJson(
         url: String,
         json: String,
+        headers: Map<String, String> = emptyMap(),
         timeoutMs: Long = 15_000L,
     ): okhttp3.Response {
         val client = okhttp3.OkHttpClient.Builder()
@@ -135,6 +142,7 @@ object Http {
                 )
             )
             .header("Content-Type", "application/json")
+            .apply { headers.forEach { (k, v) -> header(k, v) } }
             .build()
         return client.newCall(request).execute()
     }

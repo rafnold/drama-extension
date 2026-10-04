@@ -418,6 +418,44 @@ class KDramaIn : MainAPI() {
             // it is the difference between "no source" and "this title has
             // 1080p here but the stream is worker-gated" - so surface it as an
             // explicit informational entry rather than inventing a link.
+            //
+            // The VIDEO manifest is gated, but the SUBTITLES for the same
+            // server are not: /backend/subtitle answers in plain JSON with
+            // signed .srt URLs (verified: 11 languages for id=239389 s1e1,
+            // English included, and the .srt downloads clean). Those are emitted
+            // below, so server 5 still contributes something real to the
+            // episode while its video stays unresolved.
+            if (!added) {
+                val zxcSubs = ZxcSubtitleResolver.subtitlesFor(
+                    id = id,
+                    season = season ?: 1,
+                    episode = episode ?: 1,
+                    isMovie = isMovie,
+                )
+                for ((_, sub) in zxcSubs) {
+                    // emitResult handles the isCasting / dedupe / callback
+                    // plumbing, but it needs a source too, so hand the subtitle
+                    // to the same emission path directly.
+                    subtitleCallback(
+                        // Verified via javap on cloudstream.jar: SubtitleFile's
+                        // only constructor is (lang, url); `headers` is a
+                        // mutable property, not a third parameter.
+                        SubtitleFile(sub.lang, sub.url).also {
+                            it.headers = sub.headers
+                        },
+                    )
+                }
+                if (zxcSubs.isNotEmpty()) {
+                    // android.util.Log is unavailable in this module's JVM harness
+                    // (NoClassDefFoundError), and the repo has no logging wrapper,
+                    // so use stdout - which is what reaches device logcat as
+                    // System.out for an extension.
+                    println(
+                        "[$name] zxc(server 5) subtitles: " +
+                            "${zxcSubs.size} languages (${zxcSubs.keys.joinToString()})",
+                    )
+                }
+            }
             if (!added) {
                 val zxc = ZxcResolver.probe(
                     id = id,

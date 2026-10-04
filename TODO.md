@@ -9,16 +9,25 @@ before commit).
 Status columns as work lands; keep this file as the current-session handoff
 only. Release history details live in `drama-extension-state.md` (gitignored).
 
-## Current status: **v13 LIVE** (2026-10-02, commit `05add09`, builds ref `builds`)
+## Current status: **v29 built locally** (2026-10-04; live `builds` branch still v28)
 
-5 providers: DramaNice, KDrama.in, KissAsian (13 tabs), Dramahood, KissKH
-(9 tabs). Live `.cs3` 116,716 bytes sha256 `d559b4f1…` == local build;
-`builds/plugins.json` version 13. v13 adds env-var overrides for the
-remote-config secrets (see note below); device behavior unchanged.
-v12 (commit `2da2ebf`) fixed the v11 empty-cards regression
-(KissAsian + Dramahood zero cards).
+6 providers: DramaNice, KDrama.in, KissAsian, Dramahood, KissKH, Primeshows
+(Primeshows shipped in v14 — the "5 providers" count in older notes is stale).
+HEAD is v28 (`ad2105e`, ZXC discovery); v29 below is built and compiled here but
+**not yet committed or pushed**, so the app is still serving v28.
+
+v29 = server-5 (ZXC) **subtitles** are now emitted (see the v29 section at the
+bottom). Video for that server is still unresolved; subtitles are not gated.
 
 Recent releases:
+- **v28** (2026-10-04, commit `ad2105e`): ZXC (server 5) discovery — reproduces
+  the site's quality ladder (360p–1080p) from a plain client; no source emitted.
+- **v27** (2026-10-04, `35febed`): reject image-only playlists (server 3 was
+  serving a slideshow, not video).
+- **v26** (2026-10-04, `c24f83b`): one shared FlareSolverr interceptor —
+  DevcorpResolver was bypassing it.
+- **v25** (2026-10-04, `b0dbaf8`): DevcorpResolver (server 3 / moviebox).
+- **v24** (2026-10-04, `82b623b`): multi-server fan-out in `loadLinks`.
 - **v14** (2026-10-03, commit `e005d3f`): new **Primeshows** provider (`primeshows.org`). Catalog/detail/episodes via the TMDB proxy (`/api/proxy/tmdb`), watch route `/watch/{movie|tv}/{tmdbId}`, sources via `api.wecollege.net` seed→`/miami/sources` + the ported `VidyDecrypt` (base64url ct → XOR PRNG keystream → `"mvm1"` magic → JSON `sources[]` → m3u8 with `referer=https://www.vidy.st/`). Fixes that unblocked it in the harness: (1) `VidyDecrypt.base64Decode` padding `(-len)%4` → `(4-len%4)%4` (Kotlin `%` keeps the sign, so a ct length %4∈{2,3} decoded empty → flaky magic mismatch, since ct length is non-deterministic); (2) harness `SiteConfig.kt` was missing the primeshows mirror → relative proxy URL; (3) standalone decrypt test used the wrong seed host and parsed the ct as JSON. Harness gate GREEN for Primeshows (catalog 20 cards, movie+TV load, TV loadLinks=3 links, decrypt PASS, live capture `Digger` e2eLinks=3). Remaining failure is **KDrama.in only** — pre-existing, blocked by a Cloudflare "Just a moment..." bot challenge (HTTP 403) on the harness HTTP client, unrelated to Primeshows and failing identically before these changes.
 - **v13** (2026-10-02, commit `05add09`): env-var overrides for the
   remote-config secrets. The 6 resolver/secret accessors in `SiteConfig.kt`
@@ -322,6 +331,83 @@ rewritten to `~/Desktop/workspace/...`. Then:
 usual. v15 build: cs3 135,648 B; dex contains `yoy4.php` +
 `kisskh.megaplay.su` + `CloudflareKiller`; `grep REDACTED` = 0; no `eyJ` TMDB
 token in the dex.
+
+## v29 — server-5 (ZXC) English subtitles + the `Origin` fix (2026-10-04)
+
+**Shipped.** `.cs3` 153,182 B, deployed to the device via
+`./gradlew :DramaExtension:deployWithAdb` (no push required for testing).
+Gate: **same 2 FAILs as the v28 baseline, verified by stashing this work and
+re-running at HEAD** — both are the pre-existing k-drama.in Cloudflare block on
+this host (`load FAILED: Could not parse title from detail.php?id=229480`), not
+a regression. Everything else PASS/SKIP.
+
+### Server-5 subtitles now work (`ZxcSubtitleResolver.kt`, new)
+
+The video manifest for server 5 stays gated, but the **subtitle** endpoint on the
+same server is wide open, so server 5 finally contributes something real:
+
+1. `POST https://player.zxcprime.xyz/backend/willierevillame` — identical body
+   shape to `ZxcResolver`, except the server field is the literal `"subtitle_"`
+   instead of `atlas`/`valstrax`.
+2. `GET https://embed.vidstuck.xyz/backend/subtitle?<same hex keys>` — served
+   from a **different host** than the token, needs
+   `Referer: https://player.zxcprime.xyz/`.
+3. -> `{"captions":[{id, file, display}, ...]}`, `file` being a signed,
+   time-limited `.srt` on `cacdn.hakunaymatata.com`.
+
+Verified live for id=239389 ("Fangs of Fortune") s1e1: **11 captions**, English
+at index 2, and the `.srt` downloads clean (29,900 B, BOM + valid SRT timing).
+
+**English only, by owner decision.** The endpoint offers 11 languages; the owner
+watches with English subs, so only the `English` caption is emitted and the
+client's menu gets one entry. The trap worth remembering: the caption objects
+have **no `lang`/`name` field at all** — only `display`, a human-readable name in
+that language (`English`, `Français`, `Русский`, `中文`, `العربية` with
+diacritics…). Worse, the Indonesian one is literally **`Indonesia`** (the
+country, not the language). So these strings can't be trusted as language names;
+an exact match on `"english"` is the only reliable test, and that's why there is
+no lookup table.
+
+### `Origin` header on JSON POSTs (`Http.postJson` gained a `headers` param)
+
+`POST /backend/willierevillame` **without** `Origin` answers
+`200 {"success":false,"error":"Internal Server Error"}` — a 200 with an error
+body, which reads like a server bug rather than a rejected preflight. This was
+masking the whole discovery chain. `Http.postJson` now takes `headers`, and all
+three callers pass `Origin` (`ZxcResolver`, `ZxcSubtitleResolver`) — the two
+FlareSolverr call sites were switched to the named `timeoutMs` argument since
+adding a positional param would have silently reinterpreted their argument.
+
+### Why server-5 VIDEO is still unresolved — two corrections to v28
+
+- The `link` from `/backend_/sources/atlas` is **1132** base64url chars
+  (848 raw bytes, `Salted__` OpenSSL envelope), and `token` is **64** chars
+  (48 bytes).
+- `/backend/database/andromeda?url=…&header=…` takes **142** (106 bytes) and
+  **900** (675 bytes) respectively — **neither matches**, and no `Salted__`
+  header on either. Feeding the real `link`+`token` to andromeda answers
+  **HTTP 400**.
+- `andromeda` returns a **real 275-segment 1080p HLS VOD** when given the values
+  from a live browser session — but those segment URIs are **relative** and 404
+  on every path prefix tried against `embed.vidstuck.xyz`, and the
+  `cacdn`/`sacdn.hakunaymatata.com` hosts 403 without a signature. So the
+  manifest a browser gets is not reachable from a plain client even when
+  decrypted.
+- The Cloudflare-worker transport *does* replay perfectly from any client (275
+  absolute segment URLs, **7/7 sampled HTTP 200** with genuine MPEG-TS `47 40 11
+  10` sync bytes) — but those URLs come from the browser's own player runtime,
+  i.e. they are a capture artifact, not derivable from `sources/atlas`.
+
+Net: v28's conclusion stands. The block is server-side key custody, and the one
+thing that would finish it is a captured known-plaintext pair — which is exactly
+what `vid.log` (kept at the repo root, untracked) contains.
+
+### Also verified this session (useful, no code needed)
+
+- FlareSolverr at `http://192.168.1.20:8191` is reachable and healthy (3.5.2),
+  but `sessions.create` + `request.get` on the andromeda URL returns the **SPA
+  shell, not the playlist** — that endpoint is context-sensitive, so a
+  headless fetch is not a substitute for the direct chain above.
 
 ## Next steps
 

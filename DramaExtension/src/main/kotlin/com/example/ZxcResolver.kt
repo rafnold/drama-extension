@@ -70,6 +70,11 @@ class ZxcResolver {
         private const val ORIGIN = "https://player.zxcprime.xyz"
         private const val REF = "$ORIGIN/player/tv/0/1/1"
 
+        /** Must match the UA of the page that solves any challenge on this origin. */
+        private const val UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
         private const val TIMEOUT = 20_000L
 
         /** Fixed obfuscated field names (stable across requests and builds). */
@@ -213,7 +218,15 @@ class ZxcResolver {
         }
 
         private fun postJson(url: String, body: String): String =
-            Http.postJson(url, body, TIMEOUT).use { r -> r.body?.string() ?: "" }
+            // `Origin` is required: the endpoint answers
+            // {"success":false,"error":"Internal Server Error"} without it
+            // (verified 2026-10-04).
+            Http.postJson(
+                url,
+                body,
+                headers = mapOf("Origin" to ORIGIN, "User-Agent" to UA),
+                timeoutMs = TIMEOUT,
+            ).use { r -> r.body?.string() ?: "" }
 
         private fun getJson(url: String): String =
             Http.get(url, referer = REF, timeoutMs = TIMEOUT).text

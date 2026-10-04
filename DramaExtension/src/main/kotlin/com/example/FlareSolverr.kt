@@ -84,7 +84,7 @@ class FlareSolverr(
             val body = Http.postJson(
                 baseUrl.trimEnd('/') + "/v1",
                 payload.toString(),
-                20_000L,
+                timeoutMs = 20_000L,
             ).use { it.body?.string().orEmpty() }
             JSONObject(body).optString("status") == "ok"
         } catch (_: Throwable) {
@@ -117,7 +117,7 @@ class FlareSolverr(
         }
 
         val body = try {
-            Http.postJson(endpoint, payload.toString(), REQUEST_TIMEOUT_MS)
+            Http.postJson(endpoint, payload.toString(), timeoutMs = REQUEST_TIMEOUT_MS)
                 .use { it.body?.string().orEmpty() }
         } catch (_: Throwable) {
             return null
