@@ -135,9 +135,56 @@ class DevcorpResolver {
                 }
             }
 
-            ResolveResult(ok = true, sources = sources, subtitles = subtitles).dedupe()
+            val kept = ArrayList<ResolvedSource>()
+            for (s in sources) {
+                // Reject image-only playlists. Verified 2026-10-03 for
+                // "Fangs of Fortune": server 3's m3u8 has 556 segments and every
+                // one is a .png on uk.8273671.xyz - a slideshow, not video. It
+                // parses cleanly and *looks* like a valid HLS source, so
+                // without this check CloudStream happily plays a static-image
+                // "video" at whatever quality the user then complains about.
+                if (!isRealVideo(s.url)) continue
+                kept += s
+            }
+            if (kept.isEmpty()) return ResolveResult.EMPTY
+
+            ResolveResult(ok = true, sources = kept, subtitles = subtitles).dedupe()
         } catch (_: Throwable) {
             ResolveResult.EMPTY
         }
+    }
+
+    /**
+     * True when [playlistUrl] looks like a real video playlist.
+     *
+     * Fetches the playlist and looks at its segment extensions. Anything that
+     * is purely `.png`/`.jpg`/`.jpeg`/`.webp`/`.gif` is an image playlist and is
+     * rejected. An unreachable playlist is treated as *probably fine* (we
+     * cannot prove otherwise without penalising every real source), and an
+     * actual `#EXT-X-STREAM-INF` master playlist is always accepted since its
+     * variants are resolved by the player.
+     */
+    private fun isRealVideo(playlistUrl: String): Boolean {
+        val body = try {
+            Http.get(playlistUrl).text
+        } catch (_: Throwable) {
+            return true
+        }
+        if (body.isBlank()) return true
+        // Master playlist: variants carry the real bitrates, let the player pick.
+        if (body.contains("#EXT-X-STREAM-INF")) return true
+
+        val segments = Regex("^([^\\s#]+)$", RegexOption.MULTILINE)
+            .findAll(body)
+            .map { it.groupValues[1].lowercase() }
+            .filter { it.startsWith("http") || it.contains('.') }
+            .toList()
+        if (segments.isEmpty()) return true
+
+        val imageExts = listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
+        val videoSegments = segments.filterNot { s -> imageExts.any { s.endsWith(it) } }
+        // All-image playlist => slideshow, reject. Anything with a real media
+        // segment is kept.
+        return videoSegments.isNotEmpty()
     }
 }
