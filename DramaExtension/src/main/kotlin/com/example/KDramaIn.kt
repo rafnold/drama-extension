@@ -402,6 +402,42 @@ class KDramaIn : MainAPI() {
                     added = emitResult(yoy, name, UA, subtitleCallback, callback)
                 }
             }
+
+            // Server 5 (zxcstream.icu) - discovery only, no source emitted.
+            //
+            // The site's own picker advertises six servers (Main Server,
+            // Backup I-V) and we can now reproduce its discovery call exactly:
+            // POST /backend/willierevillame returns {token,ts}, and those go
+            // into GET /backend_/sources/<atlas|valstrax>, which returns the
+            // real quality ladder (atlas -> hls 360/480/720/1080).
+            //
+            // Each per-quality `link` is an OpenSSL AES-CBC envelope whose key
+            // never reaches the browser (32 chunks contain no Salted__/EVP/
+            // passphrase; the token is not the key), so there is no URL we could
+            // honestly hand over. Reporting the ladder is still worth doing -
+            // it is the difference between "no source" and "this title has
+            // 1080p here but the stream is worker-gated" - so surface it as an
+            // explicit informational entry rather than inventing a link.
+            if (!added) {
+                val zxc = ZxcResolver.probe(
+                    id = id,
+                    season = season ?: 1,
+                    episode = episode ?: 1,
+                    isMovie = isMovie,
+                )
+                // Deliberately NOT emitted as a link. A placeholder URL would
+                // appear in the client as a source that silently never plays,
+                // which is indistinguishable from "no source" and corrupts the
+                // client's view of the catalogue. Log the ladder so it is
+                // diagnosable, and report no source - honestly.
+                // android.util.Log is unavailable in this module's JVM harness
+                // (NoClassDefFoundError), and the repo has no logging wrapper,
+                // so use stdout - which is what reaches device logcat as
+                // System.out for an extension.
+                if (zxc.isNotEmpty()) {
+                    println("[$name] zxc discovery (no playable source): $zxc")
+                }
+            }
             added
         } catch (_: Throwable) {
             false

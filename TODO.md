@@ -449,3 +449,58 @@ whose player is a **TMDB-id embed aggregator** — both fit our architecture.
 - `$GITHUB_TOKEN` (fine-grained PAT, user `rafnold`) is embedded in the git
   remote origin URL (replaced 2026-09-30; old dead token optionally
   deletable at github.com/settings/tokens).
+
+## v28 - ZXC (server 5) discovery, deliberately no source emitted
+
+The site's own picker advertises six servers (Main Server, Backup I-V). We can
+now reproduce its discovery call exactly, from a plain client, no browser:
+
+1. `POST /backend/willierevillame` with a PLAIN json body keyed by fixed hex
+   field names -> `{"token":"<64 hex>","ts":<epoch ms>}`
+2. `GET /backend_/sources/<atlas|valstrax>?<same hex keys + token + ts>`
+   -> `{"success":true,"links":[{"type":"hls","link":"<base64>","resolution":360},
+      ... 480, 720, 1080],"dubs":[zh Original Audio, ar, ru]}`
+
+`atlas` returns `type:"hls"`, `valstrax` returns `type:"dash"`. This is the
+360p-1080p ladder visible on the website. Note the hex name mapping is FIXED -
+only token/ts rotate - so this is reproducible, correcting the v27 note that
+called the keys a moving target.
+
+Verified request requirements: the sources GET requires **title** and **airdate**
+(omitting either -> `{"success":false,"error":"missing params"}`); year, enddate
+and imdb are optional. Neither is in `loadLinks` scope, so they come from
+`https://zxcstream.icu/database/details/<kind>/<id>?language=en-US` - a clean,
+unencrypted TMDB proxy with no Cloudflare.
+
+Origins: `player.zxcstream.xyz` -> `player.zxcprime.xyz` (which serves
+`/player/tv/...`) -> `zxcstream.icu` (which serves `/watch/tv/...`). Each host
+answers only one of those two path forms; the other 404s.
+
+### Why NO source is emitted for it
+
+Each `link` base64-decodes to `b"Salted__" + 8-byte salt + 832 bytes
+ciphertext` (832 % 16 == 0): a standard OpenSSL AES-CBC envelope. Ruled out:
+
+- 32 chunks across both origins contain no `Salted__`, `EVP`, `BytesToKey`,
+  `CryptoJS` or `passphrase`. Every `subtle.decrypt`/`pbkdf2`/`deriveBits` hit
+  is stock fflate (dash.js) or Widevine/forge.
+- The token is not the key: tried raw as an AES-256 key with iv = salt*2 /
+  zeros / salt+8zero, and via EVP_BytesToKey with md5 and sha256, for both
+  atlas and valstrax.
+- Salt AND ciphertext change on every request for the same title; Shannon
+  entropy 7.72-7.75 with no valid PKCS7 padding -> real CBC, ~832-byte
+  plaintext.
+- The `link` is not a URL. Requested on every plausible origin/path it 404s;
+  the 200s are Next.js's SPA catch-all serving the app shell.
+
+The key never reaches the browser, so the manifest is resolved server-side.
+**To finish this we need one known-plaintext pair**: a real manifest response
+captured from a working browser session. The fragment transport is already
+solved (the `workers.dev/a?y=..&h=..` URLs replay from any client with no
+Origin and a foreign Referer, returning identical gzipped MPEG-TS), so only
+discovery+decryption remain.
+
+Per the project's own rule, a server we can reach but cannot parse is reported
+as "no source yet", never as a working source: a guessed URL fails silently and
+is indistinguishable from "no source". `ZxcResolver.probe()` therefore returns
+the ladder as a diagnostic and `loadLinks` logs it rather than emitting a link.
