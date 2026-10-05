@@ -402,15 +402,23 @@ class KDramaIn : MainAPI() {
             // id=290699 s1e1 server 1 (vidsync) is 522 dead while server 3
             // (/2.php) returns the episode with a direct m3u8.
             val msr = MultiServerResolver(name)
+            val seasonNum = season ?: 1
+            val episodeNum = episode ?: 1
+            // URLs handled by dedicated resolvers (Devcorp for /2.php, Yoy4 for
+            // yoy4.php). These are excluded from the generic fan-out so the
+            // customResolver is not lost to LinkedHashSet deduplication.
+            val devcorpUrl = MultiServerResolver.kdramaInProxy(mainUrl, id, seasonNum, episodeNum, 2)
+            val yoy4Url = MultiServerResolver.yoy4(mainUrl, id, seasonNum, episodeNum, isMovie)
             val tasks = LinkedHashSet<EmbedTask>()
             tasks += EmbedTask(embedUrl, name)          // primary, stays first
+            // Generic fan-out minus the dedicated-resolver URLs.
             tasks += msr.tasksFor(
                 mainUrl = mainUrl,
                 id = id,
-                season = season ?: 1,
-                episode = episode ?: 1,
+                season = seasonNum,
+                episode = episodeNum,
                 isMovie = isMovie,
-            )
+            ).filter { it.url != devcorpUrl && it.url != yoy4Url }
             // Dedicated resolvers run IN PARALLEL with the fan-out, in the same
             // task list, sharing the same budget and completion-order draining.
             //
@@ -421,15 +429,11 @@ class KDramaIn : MainAPI() {
             // result was silently discarded. Now they're just tasks: if they
             // finish within the budget, their result is in `results` like any
             // other server.
-            val seasonNum = season ?: 1
-            val episodeNum = episode ?: 1
-            tasks += EmbedTask(
-                MultiServerResolver.kdramaInProxy(mainUrl, id, seasonNum, episodeNum, 2),
-                "Server 3 (moviebox)",
-            ) {
+            tasks += EmbedTask(devcorpUrl, "Server 3 (moviebox)") {
                 DevcorpResolver().resolve(it)
             }
-            tasks += EmbedTask(data, "Server 6 (YOY)") {
+            // Yoy4Resolver: use the yoy4.php URL so serverLabel() can match it.
+            tasks += EmbedTask(yoy4Url, "Server 6 (YOY)") {
                 Yoy4Resolver().resolve(data)
             }
 
