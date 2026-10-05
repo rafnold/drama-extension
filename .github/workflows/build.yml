@@ -52,21 +52,6 @@ jobs:
           yes | "$SDKM" --licenses > /dev/null 2>&1 || true
           "$SDKM" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      # The CloudStream gradle plugin (com.lagradost.cloudstream3:gradle:local-SNAPSHOT)
-      # is not currently published on JitPack/GitHub Packages (missing JARs), so we
-      # build it from source and publish it to mavenLocal first.
-      # Pinned to a known-good commit for reproducible builds.
-      - name: Checkout CloudStream gradle plugin
-        uses: actions/checkout@master
-        with:
-          repository: "recloudstream/gradle"
-          ref: "32895aedb6366f5075cb99bbd2e6ce0a7cac325d"
-          path: "cloudstream-plugin"
-
-      - name: Publish CloudStream gradle plugin to mavenLocal
-        working-directory: cloudstream-plugin
-        run: ./gradlew publishToMavenLocal --console=plain
-
       - name: Build Plugins
         run: |
           cd $GITHUB_WORKSPACE/src
