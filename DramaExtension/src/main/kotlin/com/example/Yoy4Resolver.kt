@@ -1,40 +1,58 @@
 package com.example
 
-import com.lagradost.cloudstream3.network.CloudflareKiller
+import org.json.JSONObject
 
 /**
- * Server 6 of the k-drama.in watch page ("YOY") - the chain that actually
- * plays, verified live 2026-10-03.
+ * Server 6 of the k-drama.in watch page ("YOY") — the chain that actually
+ * plays, verified live 2026-10-05.
+ *
+ * ## How it works
  *
  * The watch page's `switchServer(6)` sets the player iframe to
- * `https://k-drama.in/yoy4.php?id=<tmdbId>&s=<season>&e=<episode>`, and that
- * page is a one-line proxy: it embeds
- * `https://kisskh.megaplay.su/kisskh/<megaplayId>` and nothing else.
+ * `https://k-drama.in/yoy4.php?id=<tmdbId>&s=<season>&e=<episode>`.
+ * That page is an SPA that fetches `?ajax=1` to get the server list:
  *
- * The rest of the chain, all verified with a live fetch:
+ * ```json
+ * {
+ *   "success": true,
+ *   "backdrop": "...",
+ *   "servers": [
+ *     {"name": "Fast Server (Default)", "src": "https://kisskh.megaplay.su/kisskh/<id>"},
+ *     {"name": "▶ Standard Server",     "src": "https://megavid.buzz/kisskh/<id>"}
+ *   ]
+ * }
+ * ```
  *
- * 1. `kisskh.megaplay.su/kisskh/<id>` is **referer-gated**: with no Referer
- *    it answers `403 "Embed Only"`; with `Referer: https://k-drama.in/` it
- *    answers `200 "KissKH Player"`. The referer only has to *be* a
- *    k-drama.in page - any path on the host works.
- * 2. That page embeds one m3u8 on the same host plus a set of `.srt` tracks
- *    (`…/<hash>/<name>.en.srt`, `.ar.srt`, `.id.srt`, `.km.srt`, `.ms.srt`,
- *    `.nl.srt`, …). English confirmed: 51,960 bytes, correct SRT timing.
- * 3. **The m3u8 itself has a different referer gate than the page**: it
- *    answers `403 {"error":"forbidden"}` for a k-drama.in referer or none,
- *    and `200` only for a self-referer (`Referer: https://kisskh.megaplay.su/`
- *    or the player page URL). Media segments then fetch fine with or without
- *    it, but the playlist must be requested with the self-referer.
+ * Both servers carry the same content with English subtitles. The resolver
+ * tries them in order until one yields a playable m3u8.
  *
- * So the emitted link must carry `referer = https://kisskh.megaplay.su/` and
- * the same header must be used to fetch the playlist; emitting the bare m3u8
- * without it yields a 403 at playback time.
+ * ### kisskh.megaplay.su
  *
- * This runs as a fallback behind the primary vidsync embed (per fallback
- * discipline: a partial regression must still yield a playable link).
- * Verified end to end for `watch.php?id=290699&season=1&episode=1`
- * ("Shadow Punisher" S1E1): playlist 200 / 134,510 bytes, media segment 200 /
- * 400,435,488 bytes, English .srt 200 / 51,960 bytes.
+ * The player page embeds the m3u8 and .srt tracks directly in the HTML.
+ * The m3u8 is referer-gated: it answers 403 for a k-drama.in referer and
+ * 200 only for a self-referer (`https://kisskh.megaplay.su/`).
+ *
+ * ### megavid.buzz
+ *
+ * The player page is an SPA that fetches `/kisskh/<id>/source` for JSON:
+ * ```json
+ * {
+ *   "status": "ok",
+ *   "source": "https://megavid.buzz/vid/.../index.m3u8",
+ *   "tracks": [
+ *     {"file": "https://megavid.buzz/sub/.../en.srt", "label": "English", ...}
+ *   ]
+ * }
+ * ```
+ * The m3u8 here is also referer-gated (self-referer required).
+ *
+ * ## Why the old resolver failed
+ *
+ * The old implementation scraped the rendered HTML for an iframe, which
+ * required a 7-second SPA render wait and only worked for the first server
+ * (kisskh.megaplay.su). Movies often return "Episode 1 not found" from
+ * kisskh but work fine on megavid.buzz, so the resolver needed to try
+ * both.
  */
 class Yoy4Resolver {
 
@@ -44,30 +62,18 @@ class Yoy4Resolver {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-        /** Gate for the proxy page on k-drama.in. */
+        /** Gate for the yoy4.php proxy page on k-drama.in. */
         private const val PAGE_REFERER = "https://k-drama.in/"
 
         /** Gate for the kisskh player page (any k-drama.in page works). */
         private const val PLAYER_REFERER = PAGE_REFERER
 
-        /** Gate for the m3u8 + .srt: the kisskh host itself. */
-        private const val MEGA_REFERER = "https://kisskh.megaplay.su/"
+        /** Gate for the kisskh m3u8 + .srt: the kisskh host itself. */
+        private const val KISSKH_REFERER = "https://kisskh.megaplay.su/"
 
-        /**
-         * How long the SPA gets to build its DOM before we scrape it.
-         *
-         * Measured 2026-10-04: 6 s is enough for `yoy4.php` to inject the
-         * kisskh embed, and 7 s leaves a margin. FlareSolverr's own default
-         * (no wait) returns the pre-script DOM, which has no iframe at all.
-         */
-        private const val RENDER_WAIT_MS = 7_000
+        /** Gate for the megavid m3u8 + .srt: the megavid host itself. */
+        private const val MEGAVID_REFERER = "https://megavid.buzz/"
 
-        private val iframeRe = Regex("src=\"(https://kisskh\\.megaplay\\.su/[^\"]+)\"")
-        private val m3u8Re = Regex("(https://kisskh\\.megaplay\\.su/vid/[^\"\\s<]+\\.m3u8)")
-        private val srtRe = Regex("(https://kisskh\\.megaplay\\.su/sub/[^\"\\s<]+\\.srt)")
-        private val langOfRe = Regex("\\.([a-z]{2,3})\\.srt$")
-
-        /** ISO-639 codes for the codes kisskh actually uses. */
         private val langNames = mapOf(
             "en" to "English",
             "ar" to "Arabic",
@@ -102,105 +108,271 @@ class Yoy4Resolver {
                 ?: return ResolveResult.EMPTY
             val season = Regex("season=(\\d+)").find(data)?.groupValues?.get(1) ?: "1"
             val episode = Regex("episode=(\\d+)").find(data)?.groupValues?.get(1) ?: "1"
+            // Movies use s=1&e=1 on the site (verified in playerState).
+            val isMovie = data.contains("type=movie")
+            val s = if (isMovie) "1" else season
+            val e = if (isMovie) "1" else episode
 
-            val yoyUrl = "$PAGE_REFERER" + "yoy4.php?id=$id&s=$season&e=$episode"
-            // `yoy4.php` is a JavaScript SPA: the served HTML contains **no <iframe>
-            // at all** and the kisskh.megaplay.su embed only appears once the
-            // page's scripts run (~6 s, verified 2026-10-04). So the raw body
-            // is tried first (cheap) and, when it has no iframe, the page is
-            // re-fetched through FlareSolverr with an explicit render wait.
-            //
-            // Without this second step the resolver returned EMPTY on every
-            // SPA-rendered server-6 page - which is the server that actually
-            // carries the title (verified: playlist 200 / 534 segments /
-            // 390 MB MPEG-TS) - so loadLinks had nothing to offer but the dead
-            // Devcorp link and CloudStream reported "Bad http status" (2004).
-            var yoyHtml = Http.get(
-                yoyUrl,
+            val yoyUrl = "$PAGE_REFERER" + "yoy4.php?id=$id&s=$s&e=$e"
+
+            // Step 1: fetch the server list via the ajax endpoint.
+            // This is the same call the SPA makes — no render wait needed.
+            val ajaxResp = Http.get(
+                yoyUrl + "&ajax=1",
                 headers = mapOf("User-Agent" to UA, "Referer" to PAGE_REFERER),
-                interceptor = killer(),
-            ).text
-
-            var playerUrl = iframeRe.find(yoyHtml)?.groupValues?.get(1)
-            if (playerUrl == null) {
-                ExtLog.log("yoy", "no iframe in raw HTML -> rendered fetch (${yoyHtml.length} B)")
-                yoyHtml = CloudflareGate.interceptor().renderedHtml(
-                    yoyUrl,
-                    referer = PAGE_REFERER,
-                    waitMs = RENDER_WAIT_MS,
-                ) ?: run {
-                    ExtLog.log("yoy", "rendered fetch returned null")
-                    return ResolveResult.EMPTY
-                }
-                playerUrl = iframeRe.find(yoyHtml)?.groupValues?.get(1)
-                ?: run {
-                    ExtLog.log("yoy", "still no iframe after render (${yoyHtml.length} B)")
-                    return ResolveResult.EMPTY
-                }
-            }
-            ExtLog.log("yoy", "iframe=$playerUrl")
-
-            val playerHtml = Http.get(
-                playerUrl,
-                headers = mapOf("User-Agent" to UA, "Referer" to PLAYER_REFERER),
-            ).text
-
-            val m3u8 = m3u8Re.find(playerHtml)?.groupValues?.get(1)
-                ?: run {
-                    ExtLog.log("yoy", "no m3u8 in player payload (${playerHtml.length} B)")
-                    return ResolveResult.EMPTY
-                }
-            ExtLog.log("yoy", "m3u8=$m3u8")
-
-            // The playlist needs the self-referer; fetch it once so a dead
-            // playlist is reported as "no sources" here rather than failing
-            // silently at playback time.
-            val probe = Http.get(
-                m3u8,
-                headers = mapOf("User-Agent" to UA, "Referer" to MEGA_REFERER),
+                interceptor = CloudflareGate.interceptor(),
             )
-            if (probe.code != 200) {
-                ExtLog.log("yoy", "playlist probe HTTP ${probe.code}")
+            if (ajaxResp.code != 200) {
+                ExtLog.log("yoy", "ajax HTTP ${ajaxResp.code}")
                 return ResolveResult.EMPTY
             }
-            val playlist = probe.text
-            if (!playlist.contains("#EXTM3U")) {
-                ExtLog.log("yoy", "playlist is not m3u8 (${playlist.length} B)")
+            val ajaxJson = JSONObject(ajaxResp.text)
+            if (!ajaxJson.optBoolean("success", false)) {
+                val err = ajaxJson.optString("error", "unknown")
+                ExtLog.log("yoy", "ajax error: $err")
                 return ResolveResult.EMPTY
             }
-            ExtLog.log("yoy", "OK playlist ${playlist.length} B")
+            val servers = ajaxJson.optJSONArray("servers")
+            if (servers == null || servers.length() == 0) {
+                ExtLog.log("yoy", "no servers in ajax response")
+                return ResolveResult.EMPTY
+            }
+            ExtLog.log("yoy", "${servers.length()} servers available")
 
-            val subs = LinkedHashMap<String, ResolvedSubtitle>()
-            for (m in srtRe.findAll(playerHtml)) {
-                val url = m.groupValues[1]
-                val code = langOfRe.find(url)?.groupValues?.get(1) ?: continue
-                if (!langNames.containsKey(code)) continue
-                if (subs.containsKey(code)) continue
-                subs[code] = ResolvedSubtitle(
-                    lang = langNames[code].orEmpty().ifBlank { code },
-                    url = url,
-                    trust = if (code == "en") 2 else 1,
-                    headers = mapOf("Referer" to MEGA_REFERER),
-                )
+            // Step 2: try each server in order until one yields a playable m3u8.
+            val allSources = mutableListOf<ResolvedSource>()
+            val allSubs = LinkedHashMap<String, ResolvedSubtitle>()
+
+            for (i in 0 until servers.length()) {
+                val srv = servers.getJSONObject(i)
+                val src = srv.optString("src", "")
+                val srvName = srv.optString("name", "server $i")
+                if (src.isBlank()) continue
+
+                val (m3u8, subs) = resolveServer(src, srvName)
+                if (m3u8 != null) {
+                    allSources += m3u8
+                    for (sub in subs) {
+                        allSubs.putIfAbsent(sub.lang, sub)
+                    }
+                    ExtLog.log("yoy", "resolved via $srvName")
+                    break
+                }
+                ExtLog.log("yoy", "server $i ($srvName) failed, trying next")
+            }
+
+            if (allSources.isEmpty()) {
+                ExtLog.log("yoy", "all servers failed")
+                return ResolveResult.EMPTY
             }
 
             ResolveResult(
                 ok = true,
-                sources = listOf(
-                    ResolvedSource(
-                        name = "$NAME ${playlist.qualityLabel()}",
-                        url = m3u8,
-                        referer = MEGA_REFERER,
-                        quality = 0,
-                        qualityLabel = playlist.qualityLabel(),
-                        type = "hls",
-                        headers = mapOf("Referer" to MEGA_REFERER),
-                    )
-                ),
-                subtitles = subs.values.toList(),
+                sources = allSources,
+                subtitles = allSubs.values.toList(),
             ).dedupe()
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            ExtLog.log("yoy", "THREW ${t.javaClass.simpleName}: ${t.message}")
             ResolveResult.EMPTY
+        }
+    }
+
+    /**
+     * Resolves one server from the yoy4 server list.
+     *
+     * @return the m3u8 source + subtitles, or (null, emptyList()) on failure.
+     */
+    private fun resolveServer(src: String, srvName: String): Pair<ResolvedSource?, List<ResolvedSubtitle>> {
+        return try {
+            val host = try {
+                java.net.URI(src).host?.lowercase() ?: ""
+            } catch (_: Throwable) { "" }
+
+            if (host.contains("kisskh")) {
+                resolveKisskh(src)
+            } else if (host.contains("megavid")) {
+                resolveMegavid(src)
+            } else {
+                ExtLog.log("yoy", "unknown host: $host")
+                null to emptyList()
+            }
+        } catch (t: Throwable) {
+            ExtLog.log("yoy", "resolveServer THREW: ${t.javaClass.simpleName} ${t.message}")
+            null to emptyList()
+        }
+    }
+
+    /**
+     * Resolves a kisskh.megaplay.su server.
+     * The player page has the m3u8 and .srt tracks directly in the HTML.
+     */
+    private fun resolveKisskh(src: String): Pair<ResolvedSource?, List<ResolvedSubtitle>> {
+        val playerHtml = Http.get(
+            src,
+            headers = mapOf("User-Agent" to UA, "Referer" to PLAYER_REFERER),
+        ).text
+
+        val m3u8Url = Regex("https://kisskh\\.megaplay\\.su/vid/[^\"\\s<]+\\.m3u8")
+            .find(playerHtml)?.groupValues?.get(0)
+        if (m3u8Url == null) {
+            ExtLog.log("yoy", "kisskh: no m3u8 in player HTML (${playerHtml.length} B)")
+            return null to emptyList()
+        }
+
+        // Probe the m3u8 with the self-referer.
+        val probe = Http.get(
+            m3u8Url,
+            headers = mapOf("User-Agent" to UA, "Referer" to KISSKH_REFERER),
+        )
+        if (probe.code != 200) {
+            ExtLog.log("yoy", "kisskh: m3u8 probe HTTP ${probe.code}")
+            return null to emptyList()
+        }
+        val playlist = probe.text
+        if (!playlist.contains("#EXTM3U")) {
+            ExtLog.log("yoy", "kisskh: playlist is not m3u8 (${playlist.length} B)")
+            return null to emptyList()
+        }
+
+        val subs = parseKisskhSubs(playerHtml)
+        val quality = playlist.qualityLabel()
+
+        val source = ResolvedSource(
+            name = "$NAME ${quality}".trim(),
+            url = m3u8Url,
+            referer = KISSKH_REFERER,
+            quality = 0,
+            qualityLabel = quality,
+            type = "hls",
+            headers = mapOf("Referer" to KISSKH_REFERER),
+        )
+        return source to subs
+    }
+
+    /**
+     * Resolves a megavid.buzz server.
+     * The player page is an SPA that fetches /source for JSON.
+     */
+    private fun resolveMegavid(src: String): Pair<ResolvedSource?, List<ResolvedSubtitle>> {
+        // The /source endpoint is relative to the player page.
+        val sourceUrl = "$src/source"
+        val resp = Http.get(
+            sourceUrl,
+            headers = mapOf("User-Agent" to UA, "Referer" to src),
+        )
+        if (resp.code != 200) {
+            ExtLog.log("yoy", "megavid: /source HTTP ${resp.code}")
+            return null to emptyList()
+        }
+        val json = JSONObject(resp.text)
+        if (json.optString("status") != "ok") {
+            val msg = json.optString("message", "unknown")
+            ExtLog.log("yoy", "megavid: source status=$msg")
+            return null to emptyList()
+        }
+        val m3u8Url = json.optString("source", "")
+        if (m3u8Url.isBlank()) {
+            ExtLog.log("yoy", "megavid: no source URL")
+            return null to emptyList()
+        }
+
+        // Probe the m3u8.
+        val probe = Http.get(
+            m3u8Url,
+            headers = mapOf("User-Agent" to UA, "Referer" to MEGAVID_REFERER),
+        )
+        if (probe.code != 200) {
+            ExtLog.log("yoy", "megavid: m3u8 probe HTTP ${probe.code}")
+            return null to emptyList()
+        }
+        val playlist = probe.text
+        if (!playlist.contains("#EXTM3U")) {
+            ExtLog.log("yoy", "megavid: playlist is not m3u8 (${playlist.length} B)")
+            return null to emptyList()
+        }
+
+        // Parse subtitle tracks from the JSON.
+        val subs = mutableListOf<ResolvedSubtitle>()
+        val tracks = json.optJSONArray("tracks")
+        if (tracks != null) {
+            for (i in 0 until tracks.length()) {
+                val t = tracks.getJSONObject(i)
+                val file = t.optString("file", "")
+                val label = t.optString("label", "")
+                if (file.isBlank() || label.isBlank()) continue
+                // Map label to language code.
+                val code = labelToCode(label)
+                if (code == null) continue
+                if (code in langNames) {
+                    subs += ResolvedSubtitle(
+                        lang = langNames[code] ?: code,
+                        url = file,
+                        trust = if (code == "en") 2 else 1,
+                        headers = mapOf("Referer" to MEGAVID_REFERER),
+                    )
+                }
+            }
+        }
+
+        val quality = playlist.qualityLabel()
+        val source = ResolvedSource(
+            name = "$NAME ${quality}".trim(),
+            url = m3u8Url,
+            referer = MEGAVID_REFERER,
+            quality = 0,
+            qualityLabel = quality,
+            type = "hls",
+            headers = mapOf("Referer" to MEGAVID_REFERER),
+        )
+        return source to subs
+    }
+
+    /**
+     * Parses .srt URLs from the kisskh player HTML.
+     */
+    private fun parseKisskhSubs(html: String): List<ResolvedSubtitle> {
+        val subs = LinkedHashMap<String, ResolvedSubtitle>()
+        val srtRe = Regex("https://kisskh\\.megaplay\\.su/sub/[^\"\\s<]+\\.srt")
+        val langOfRe = Regex("\\.([a-z]{2,3})\\.srt$")
+        for (m in srtRe.findAll(html)) {
+            val url = m.groupValues[0]
+            val code = langOfRe.find(url)?.groupValues?.get(1) ?: continue
+            if (code !in langNames) continue
+            if (subs.containsKey(code)) continue
+            subs[code] = ResolvedSubtitle(
+                lang = langNames[code] ?: code,
+                url = url,
+                trust = if (code == "en") 2 else 1,
+                headers = mapOf("Referer" to KISSKH_REFERER),
+            )
+        }
+        return subs.values.toList()
+    }
+
+    /**
+     * Maps a human-readable label ("English", "Arabic") to a 2-letter code.
+     */
+    private fun labelToCode(label: String): String? {
+        val lower = label.lowercase()
+        return when {
+            lower.contains("english") -> "en"
+            lower.contains("arabic") -> "ar"
+            lower.contains("indonesia") || lower.contains("indonesian") -> "id"
+            lower.contains("malay") -> "ms"
+            lower.contains("khmer") -> "km"
+            lower.contains("dutch") -> "nl"
+            lower.contains("thai") -> "th"
+            lower.contains("vietnam") || lower.contains("vietnamese") -> "vi"
+            lower.contains("chinese") -> "zh"
+            lower.contains("spanish") -> "es"
+            lower.contains("french") -> "fr"
+            lower.contains("german") -> "de"
+            lower.contains("portuguese") -> "pt"
+            lower.contains("russian") -> "ru"
+            lower.contains("japanese") -> "ja"
+            lower.contains("korean") -> "ko"
+            lower.contains("turkish") -> "tr"
+            else -> null
         }
     }
 
@@ -215,13 +387,4 @@ class Yoy4Resolver {
             else -> ""
         }
     }
-
-    /**
-     * Shared Cloudflare interceptor for the yoy4 proxy fetch.
-     *
-     * Routed through [CloudflareGate] so it reuses the same cached clearance the
-     * provider and DevcorpResolver use, instead of paying a separate
-     * FlareSolverr solve for the same host.
-     */
-    private fun killer(): okhttp3.Interceptor = CloudflareGate.interceptor()
 }
