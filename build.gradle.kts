@@ -7,14 +7,13 @@ buildscript {
     repositories {
         google()
         mavenCentral()
-        mavenLocal()
         maven("https://jitpack.io")
     }
 
     dependencies {
         classpath("com.android.tools.build:gradle:8.7.3")
-        // Cloudstream gradle plugin, published locally from recloudstream/gradle because the current JitPack/GitHub Packages snapshots are missing artifacts
-        classpath("com.lagradost.cloudstream3:gradle:local-SNAPSHOT")
+        // Cloudstream gradle plugin from JitPack
+        classpath("com.github.recloudstream:gradle:-SNAPSHOT")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0")
     }
 }
@@ -73,7 +72,7 @@ subprojects {
         val implementation by configurations
 
         // Stubs for all cloudstream classes
-        cloudstream("com.lagradost:cloudstream3:pre-release")
+        cloudstream("com.github.recloudstream.cloudstream:pre-release")
 
         // These dependencies can include any of those which are added by the app,
         // but you don't need to include any of them if you don't need them.
