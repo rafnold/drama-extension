@@ -188,13 +188,27 @@ class Yoy4Resolver {
                 java.net.URI(src).host?.lowercase() ?: ""
             } catch (_: Throwable) { "" }
 
-            if (host.contains("kisskh")) {
-                resolveKisskh(src)
-            } else if (host.contains("megavid")) {
-                resolveMegavid(src)
-            } else {
-                ExtLog.log("yoy", "unknown host: $host")
-                null to emptyList()
+            when {
+                host.contains("kisskh") -> resolveKisskh(src)
+                host.contains("megavid") -> resolveMegavid(src)
+                host.contains("vidbasic") -> {
+                    // Delegate to the VidbasicResolver, which extracts the
+                    // data-video links and tries each provider in order.
+                    val res = VidbasicResolver.resolve(
+                        ResolveContext(providerName = "KDramaIn", pageUrl = src),
+                        src,
+                        null,
+                    )
+                    if (res.ok && res.sources.isNotEmpty()) {
+                        res.sources[0] to res.subtitles
+                    } else {
+                        null to emptyList()
+                    }
+                }
+                else -> {
+                    ExtLog.log("yoy", "unknown host: $host")
+                    null to emptyList()
+                }
             }
         } catch (t: Throwable) {
             ExtLog.log("yoy", "resolveServer THREW: ${t.javaClass.simpleName} ${t.message}")

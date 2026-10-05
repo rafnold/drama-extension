@@ -12,6 +12,14 @@ import org.jsoup.Jsoup
  *
  * The key/iv pair is a fixed pair embedded in the page; known pairs are
  * tried first (list-shaped so rotations can be added).
+ *
+ * ## Multi-server wrapper pattern
+ *
+ * Some vidbasic.top embeds are multi-server wrappers that list multiple
+ * providers (Streamwish, Vidhide, Doodstream, etc.) in <li> elements with
+ * `data-video` attributes, and load one in an <iframe>. This resolver
+ * extracts the `data-video` URLs and returns them as separate sources,
+ * so the generic resolver layer can try each provider.
  */
 object VidbasicResolver : Resolver {
     override val hosts = listOf("vidbasic")
@@ -41,6 +49,30 @@ object VidbasicResolver : Resolver {
             Cache.markDead(embedUrl)
             return ResolveResult.EMPTY
         }
+
+        // Check for the multi-server wrapper pattern: <li> elements with data-video
+        val dataVideos = Jsoup.parse(page.text, embedUrl)
+            .select("li[data-video]")
+            .map { it.attr("data-video") }
+            .filter { it.isNotBlank() && it.startsWith("http") }
+
+        if (dataVideos.isNotEmpty()) {
+            // Multi-server wrapper: return each provider as a separate source.
+            // The generic resolver layer will try each one.
+            val sources = dataVideos.mapIndexed { i, url ->
+                ResolvedSource(
+                    name = "Vidbasic $i",
+                    url = url,
+                    referer = embedUrl,
+                    quality = 0,
+                    qualityLabel = "",
+                    type = "other",
+                )
+            }
+            return ResolveResult(ok = true, sources = sources).dedupe()
+        }
+
+        // Original pattern: 3rdplayer.html with AES encryption
         val thirdUrl = Jsoup.parse(page.text, embedUrl)
             .selectFirst("iframe#embedvideo")?.attr("src")
             ?: Jsoup.parse(page.text, embedUrl)
