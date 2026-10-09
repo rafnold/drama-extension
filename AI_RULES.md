@@ -97,14 +97,15 @@ These are the technical agreements made while building this CloudStream 3 extens
 
 - **Bump the version only when a meaningful change ships.** A version bump is a deliberate act —
   not a reflex. If nothing observable changed for the user, do not touch it.
-- **Version format is dotted, not integer.** Move off the bare integer (`version = 35`) to a
-  dotted scheme so small, incremental releases can be tracked without jumping the number:
-  `35.0.0.1` for the next release after v35, then `35.0.0.2`, `35.0.1.0`, etc. (last component =
-  the increment; bump the third when a feature lands; bump the second for a larger change).
-  Set it in `DramaExtension/build.gradle.kts` as a **string**: `version = "35.0.0.1"`.
+- **Version is a bare integer, never a dotted string.** The CloudStream gradle plugin reads
+  `project.version` with `.toIntOrNull(10)` and falls back to `-1` on anything else
+  (see `gradle/src/main/kotlin/com/lagradost/cloudstream3/gradle/tasks/Tasks.kt`). A non-integer
+  version silently produces a manifest with `version: -1`, which CloudStream rejects — so the
+  app would never install the build. Always `version = 36` style in
+  `DramaExtension/build.gradle.kts`, never `version = "35.0.0.1"`.
 - **Same CloudStream rule still applies:** the app will not install a lower version over a
-  higher one, so the new version must be strictly greater than what is live (v35).
-- **Commit message carries the version** (`35.0.0.1: ...`) so the history is self-documenting.
+  higher one, so the new version must be strictly greater than what is live (v35 → 36).
+- **Commit message carries the version** (`36: ...`) so the history is self-documenting.
 
 ## 7. Repo conventions
 

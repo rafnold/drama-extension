@@ -1,9 +1,12 @@
 // DramaExtension - Asian drama streaming providers
 // (DramaNice + KDrama.in + KissAsian + Dramahood + KissKH + Primeshows)
 
-// Use a dotted string for version numbers (AI_RULES §6): 35.0.0.1 for the
-// next release after v35. Bump only on meaningful changes — not reflexively.
-version = "35.0.0.1"
+// Use an integer for version numbers (AI_RULES §6). The CloudStream gradle
+// plugin reads `project.version` with .toIntOrNull(10) and falls back to -1
+// on anything else, so the build.gradle.kts version MUST be a bare integer.
+// Bump only on meaningful changes — not reflexively. The next release after
+// v35 is 36.
+version = 36
 
 dependencies {
     // jsoup 1.18.3 is compiled against jspecify annotations (provided scope),
