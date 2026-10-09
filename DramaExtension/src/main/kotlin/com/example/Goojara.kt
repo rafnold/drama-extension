@@ -139,21 +139,24 @@ class Goojara : MainAPI() {
         //   B) <a href="https://host/mID" title="Name (year)"><img …></a>
         //      (watch-movies / watch-series; host is ww1. or www.goojara.to)
         val reA = Regex("""<a href="(/(m|e|t)[A-Za-z0-9]+)"><div class="(im|it)"><strong>(.*?)</strong>""", RegexOption.DOT_MATCHES_ALL)
-        val reB = Regex("""<a href="(https?://[^"/]+/?|/)([A-Za-z][A-Za-z0-9]+)"[^>]*title="([^"]*)"><img""")
+        // group(4) = poster (data-src, the real image; src is the /noimg.png placeholder)
+        val reB = Regex("""<a href="(https?://[^"/]+/?|/)([A-Za-z][A-Za-z0-9]+)"[^>]*title="([^"]*)"><img[^>]*data-src="([^"]*)""""")
 
         for (m in reA.findAll(html)) {
             addCard(m.groupValues[1].trimStart('/'), m.groupValues[3], m.groupValues[4], seen, out)
         }
         for (m in reB.findAll(html)) {
-            // group(2) = id; group(3) = title.
-            addCard(m.groupValues[2], if (m.groupValues[2].startsWith("e")) "it" else "im", m.groupValues[3], seen, out)
+            // group(2) = id; group(3) = title; group(4) = poster.
+            addCard(m.groupValues[2], if (m.groupValues[2].startsWith("e")) "it" else "im", m.groupValues[3], seen, out, m.groupValues[4])
         }
         return out
     }
 
     /**
      * Add one parsed card. [id] is the Goojara id (e.g. "mwOREA"); [kind] is
-     * "im" (movie) or "it" (series); [title] is the raw on-card title.
+     * "im" (movie) or "it" (series); [title] is the raw on-card title;
+     * [poster] is the card poster URL (Format B/C) or null (Format A has no
+     * inline poster).
      */
     private fun addCard(
         id: String,
@@ -161,6 +164,7 @@ class Goojara : MainAPI() {
         title: String,
         seen: LinkedHashSet<String>,
         out: ArrayList<SearchResponse>,
+        poster: String? = null,
     ) {
         if (!id.matches(Regex("[A-Za-z][A-Za-z0-9]+"))) return
         val isSeries = kind == "it" || id.startsWith("e")
@@ -171,10 +175,12 @@ class Goojara : MainAPI() {
         if (isSeries) {
             out += newTvSeriesSearchResponse(rawTitle, url, TvType.TvSeries, false) {
                 this.year = titleParts(rawTitle).second
+                if (poster != null) posterUrl = posterFrom(poster)
             }
         } else {
             out += newMovieSearchResponse(rawTitle, url, TvType.Movie, false) {
                 this.year = titleParts(rawTitle).second
+                if (poster != null) posterUrl = posterFrom(poster)
             }
         }
     }
@@ -225,8 +231,11 @@ class Goojara : MainAPI() {
     }
 
     private fun descriptionFrom(html: String): String? {
-        return descRe.find(html)?.groupValues?.get(1)!!.replace("<p>", " ").replace("</p>", " ")
-            ?.replace("<strong>", "")?.replace("</strong>", "")?.trim()?.ifBlank { null }
+        return descRe.find(html)?.groupValues?.get(1)?.let {
+            it.replace("<p>", " ").replace("</p>", " ")
+                .replace("<strong>", "").replace("</strong>", "")
+                .trim().ifBlank { null }
+        }
     }
 
     /**
