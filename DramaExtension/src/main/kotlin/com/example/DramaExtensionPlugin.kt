@@ -31,10 +31,8 @@ class DramaExtensionPlugin : Plugin() {
         registerMainAPI(Dramahood())
         registerMainAPI(KissKH())
         registerMainAPI(Primeshows())
-        registerMainAPI(VidSrc())
         registerMainAPI(Goojara())
-        registerMainAPI(Levidia())
         registerMainAPI(YesMovies())
-        ExtLog2.log("load", "all 10 providers registered")
+        ExtLog2.log("load", "all 8 providers registered")
     }
 }
