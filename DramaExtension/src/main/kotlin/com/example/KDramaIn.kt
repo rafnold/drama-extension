@@ -237,6 +237,7 @@ class KDramaIn : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        ExtLog2.log("kd", "getMainPage ENTER")
         // Control experiment: this method definitely runs when the user opens a
         // KDrama.in tab, so if dbg.log still does not appear afterwards then
         // ExtLog cannot write to that path and every other absence is
@@ -246,10 +247,12 @@ class KDramaIn : MainAPI() {
         val url = mainUrl.removeSuffix("/") + "/dramas.php?type=${request.data}&page=${page.coerceAtLeast(1)}"
         // UG-5 dead tier: dead listing pages are not re-tried for 1 h.
         if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
+        ExtLog2.log("kd", "getMainPage exit")
         return try {
             val resp = app.get(url, interceptor = cfKillerSingleton())
             if (resp.code == 404 || resp.code == 410) {
                 Cache.markDead(url)
+        ExtLog2.log("kd", "getMainPage exit")
                 return newHomePageResponse(request, emptyList())
             }
             val doc = resp.document
@@ -275,6 +278,7 @@ class KDramaIn : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
+        ExtLog2.log("kd", "load ENTER")
         // UG-5: re-opened detail pages are served from the episode cache.
         Cache.episodes.get(url)?.let { return it }
         val doc = app.get(url, interceptor = cfKillerSingleton()).document
@@ -334,6 +338,7 @@ class KDramaIn : MainAPI() {
             }
         }
         Cache.episodes.put(url, resp)
+        ExtLog2.log("kd", "load exit")
         return resp
     }
 
@@ -371,16 +376,19 @@ class KDramaIn : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ): Boolean {
+        ExtLog2.log("kd", "loadLinks ENTER")
         // First statement on purpose: if this line never appears in logcat then
         // CloudStream is not calling loadLinks at all, and every theory about
         // our own code is moot. Verified reachable as `System.out` (the app's
         // `Loaded everything` line shows stdout is not suppressed).
         println("[kd] loadLinks ENTER data=$data")
         ExtLog.log("kd", "loadLinks ENTER casting=$isCasting data=$data")
+        ExtLog2.log("kd", "loadLinks exit")
         return try {
             val id = idRe.find(data)?.groupValues?.get(1)
             if (id == null) {
                 ExtLog.log("kd", "id did NOT match in data=$data")
+        ExtLog2.log("kd", "loadLinks exit")
                 return false
             }
             val isMovie = data.contains("type=movie")

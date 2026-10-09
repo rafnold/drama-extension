@@ -181,6 +181,7 @@ class KissAsian : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        ExtLog2.log("ka", "getMainPage ENTER")
         val data = request.data
         val latest = data == "latest"
         val path = when {
@@ -194,10 +195,12 @@ class KissAsian : MainAPI() {
         else "$base/$path/page/$page/"
         // UG-5 dead tier: dead listing pages are not re-tried for 1 h.
         if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
+        ExtLog2.log("ka", "getMainPage exit")
         return try {
             val resp = app.get(url, headers = mapOf("User-Agent" to UA))
             if (resp.code == 404 || resp.code == 410) {
                 Cache.markDead(url)
+        ExtLog2.log("ka", "getMainPage exit")
                 return newHomePageResponse(request, emptyList())
             }
             val doc = resp.document
@@ -306,6 +309,7 @@ class KissAsian : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun load(url: String): LoadResponse {
+        ExtLog2.log("ka", "load ENTER")
         // UG-5: re-opened detail pages are served from the episode cache.
         Cache.episodes.get(url)?.let { return it }
         val doc = app.get(url, headers = mapOf("User-Agent" to UA)).document
@@ -370,6 +374,7 @@ class KissAsian : MainAPI() {
             applyCommon()
         }
         Cache.episodes.put(url, resp)
+        ExtLog2.log("ka", "load exit")
         return resp
     }
 
@@ -383,6 +388,7 @@ class KissAsian : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        ExtLog2.log("ka", "loadLinks ENTER")
         val url = data
         // UG-5: cached embed selection means re-opened episodes make no
         // page fetch; the sources tier then skips the whole player chain.
@@ -391,6 +397,7 @@ class KissAsian : MainAPI() {
             val doc = try {
                 app.get(url, headers = mapOf("User-Agent" to UA)).document
             } catch (_: Throwable) {
+        ExtLog2.log("ka", "loadLinks exit")
                 return false
             }
             val raw = doc.selectFirst("li[data-video]")?.attr("data-video")
@@ -413,6 +420,7 @@ class KissAsian : MainAPI() {
         for ((_, res) in results) {
             if (res.ok) added = emitResult(res, name, UA, subtitleCallback, callback) || added
         }
+        ExtLog2.log("ka", "loadLinks exit")
         return added
     }
 

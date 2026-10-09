@@ -170,6 +170,8 @@ class DramaNice : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        ExtLog2.log("dn", "getMainPage ENTER")
+        ExtLog2.log("dn", "getMainPage exit")
         return try {
             // Country tabs filter the single-page A-Z /list-all-drama/
             // index (159 titles, per-item country-XX classes) — no extra
@@ -212,6 +214,7 @@ class DramaNice : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
+        ExtLog2.log("dn", "load ENTER")
         // UG-5: re-opened detail pages are served from the episode cache.
         Cache.episodes.get(url)?.let { return it }
         val doc = app.get(url).document
@@ -274,6 +277,7 @@ class DramaNice : MainAPI() {
             }
         }
         Cache.episodes.put(url, resp)
+        ExtLog2.log("dn", "load exit")
         return resp
     }
 
@@ -283,6 +287,8 @@ class DramaNice : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ): Boolean {
+        ExtLog2.log("dn", "loadLinks ENTER")
+        ExtLog2.log("dn", "loadLinks exit")
         return try {
             // UG-5: cached embed selection means re-opened episodes make no
             // page fetch; the sources tier then skips the whole player chain.

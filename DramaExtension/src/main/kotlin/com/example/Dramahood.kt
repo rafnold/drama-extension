@@ -154,16 +154,19 @@ class Dramahood : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        ExtLog2.log("dh", "getMainPage ENTER")
         val path = categoryPaths[request.data] ?: return newHomePageResponse(request, emptyList())
         val base = mainUrl.removeSuffix("/")
         val url = if (page <= 1) "$base/$path/"
         else "$base/$path/page/$page/"
         // UG-5 dead tier: over-run pages 404 and are not re-tried for 1 h.
         if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
+        ExtLog2.log("dh", "getMainPage exit")
         return try {
             val resp = app.get(url, headers = HEADERS)
             if (resp.code == 404 || resp.code == 410) {
                 Cache.markDead(url)
+        ExtLog2.log("dh", "getMainPage exit")
                 return newHomePageResponse(request, emptyList())
             }
             newHomePageResponse(request, resp.document.toCards())
@@ -194,6 +197,7 @@ class Dramahood : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun load(url: String): LoadResponse {
+        ExtLog2.log("dh", "load ENTER")
         // UG-5: re-opened series pages are served from the episode cache.
         Cache.episodes.get(url)?.let { return it }
         val doc = app.get(url, headers = HEADERS).document
@@ -261,6 +265,7 @@ class Dramahood : MainAPI() {
             this.showStatus = showStatus
         }
         Cache.episodes.put(url, resp)
+        ExtLog2.log("dh", "load exit")
         return resp
     }
 
@@ -274,6 +279,7 @@ class Dramahood : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        ExtLog2.log("dh", "loadLinks ENTER")
         val url = data
         // UG-5: cached embed lists mean re-opened episodes make no page
         // fetch; the dead tier skips embeds known to 404.
@@ -282,6 +288,7 @@ class Dramahood : MainAPI() {
             val doc = try {
                 app.get(url, headers = HEADERS).document
             } catch (_: Throwable) {
+        ExtLog2.log("dh", "loadLinks exit")
                 return false
             }
             val set = LinkedHashSet<String>()
@@ -323,6 +330,7 @@ class Dramahood : MainAPI() {
                 emitResult(res.copy(ok = true, sources = fresh), name, UA, subtitleCallback, callback) ||
                 added
         }
+        ExtLog2.log("dh", "loadLinks exit")
         return added
     }
 }

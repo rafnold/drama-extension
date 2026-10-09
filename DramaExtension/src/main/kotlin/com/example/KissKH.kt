@@ -107,6 +107,7 @@ class KissKH : MainAPI() {
     // MainAPI
     // ------------------------------------------------------------------
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        ExtLog2.log("kk", "getMainPage ENTER")
         val p = page.coerceAtLeast(1)
         val genre = genrePaths[request.data]
         val url = if (genre != null) {
@@ -116,6 +117,7 @@ class KissKH : MainAPI() {
         }
         // UG-5 dead tier: over-run listing pages are not re-tried for 1 h.
         if (Cache.isDead(url)) return newHomePageResponse(request, emptyList())
+        ExtLog2.log("kk", "getMainPage exit")
         return try {
             val doc = if (genre != null) {
                 app.get(url).document
@@ -141,6 +143,7 @@ class KissKH : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
+        ExtLog2.log("kk", "load ENTER")
         // UG-5: re-opened detail pages are served from the episode cache.
         Cache.episodes.get(url)?.let { return it }
         val doc = app.get(url).document
@@ -166,6 +169,7 @@ class KissKH : MainAPI() {
                 if (tags.isNotEmpty()) this.tags = tags
             }
             Cache.episodes.put(url, resp)
+        ExtLog2.log("kk", "load exit")
             return resp
         }
 
@@ -180,6 +184,7 @@ class KissKH : MainAPI() {
                 season = 1
             }
         }
+        ExtLog2.log("kk", "load exit")
         return newTvSeriesLoadResponse(nm, url, TvType.AsianDrama, eps) {
             posterUrl = poster
             this.year = year
@@ -199,6 +204,8 @@ class KissKH : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ): Boolean {
+        ExtLog2.log("kk", "loadLinks ENTER")
+        ExtLog2.log("kk", "loadLinks exit")
         return try {
             // UG-5: cached vaults mean re-opened episodes make no page fetch.
             var vault = Cache.lists.get(data)?.firstOrNull()

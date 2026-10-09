@@ -131,6 +131,7 @@ class Primeshows : MainAPI() {
     // ------------------------------------------------------------------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
+        ExtLog2.log("ps", "getMainPage ENTER")
         val endpoint = when (request.data) {
             "movies" -> "/movie/popular"
             "tv" -> "/tv/popular"
@@ -139,6 +140,7 @@ class Primeshows : MainAPI() {
             "sci_fi" -> "/discover/tv?with_genres=10765&sort_by=popularity"
             else -> "/trending/all/week" // trending_all
         }
+        ExtLog2.log("ps", "getMainPage exit")
         return try {
             val res = app.get(proxyUrl(withPage(endpoint, page)))
             newHomePageResponse(request, parseResults(JSONObject(res.text), null))
@@ -158,6 +160,7 @@ class Primeshows : MainAPI() {
     }
 
     override suspend fun load(url: String): LoadResponse {
+        ExtLog2.log("ps", "load ENTER")
         val m = watchRe.find(url) ?: throw Exception("Not a Primeshows watch URL: $url")
         val tmdb = m.groupValues[1]
         val isMovie = url.contains("/watch/movie/")
@@ -183,6 +186,7 @@ class Primeshows : MainAPI() {
             fetchTvEpisodes(tmdb, obj)
         }
 
+        ExtLog2.log("ps", "load exit")
         return if (isMovie) {
             newMovieLoadResponse(mediaName, url, TvType.Movie, url) {
                 posterUrl = poster
@@ -252,6 +256,8 @@ class Primeshows : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ): Boolean {
+        ExtLog2.log("ps", "loadLinks ENTER")
+        ExtLog2.log("ps", "loadLinks exit")
         return try {
             val m = watchRe.find(data) ?: return false
             val tmdb = m.groupValues[1].toLong()
