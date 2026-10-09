@@ -1,8 +1,9 @@
 // DramaExtension - Asian drama streaming providers
 // (DramaNice + KDrama.in + KissAsian + Dramahood + KissKH + Primeshows)
 
-// Use an integer for version numbers
-version = 35
+// Use a dotted string for version numbers (AI_RULES §6): 35.0.0.1 for the
+// next release after v35. Bump only on meaningful changes — not reflexively.
+version = "35.0.0.1"
 
 dependencies {
     // jsoup 1.18.3 is compiled against jspecify annotations (provided scope),

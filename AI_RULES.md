@@ -93,7 +93,20 @@ These are the technical agreements made while building this CloudStream 3 extens
 - Subtitle language fallback chain: API `lang` → `format` → filename token → `"en"`, using the
   provider's `langNames` map (see `KDramaIn.kt` / `KissAsian.kt` companion).
 
-## 6. Repo conventions
+## 6. Versioning discipline (do not bump versions fast)
+
+- **Bump the version only when a meaningful change ships.** A version bump is a deliberate act —
+  not a reflex. If nothing observable changed for the user, do not touch it.
+- **Version format is dotted, not integer.** Move off the bare integer (`version = 35`) to a
+  dotted scheme so small, incremental releases can be tracked without jumping the number:
+  `35.0.0.1` for the next release after v35, then `35.0.0.2`, `35.0.1.0`, etc. (last component =
+  the increment; bump the third when a feature lands; bump the second for a larger change).
+  Set it in `DramaExtension/build.gradle.kts` as a **string**: `version = "35.0.0.1"`.
+- **Same CloudStream rule still applies:** the app will not install a lower version over a
+  higher one, so the new version must be strictly greater than what is live (v35).
+- **Commit message carries the version** (`35.0.0.1: ...`) so the history is self-documenting.
+
+## 7. Repo conventions
 
 - Providers live in `DramaExtension/src/main/kotlin/com/example/` — one file per provider,
   `class X : MainAPI()`.
@@ -103,7 +116,7 @@ These are the technical agreements made while building this CloudStream 3 extens
 - `drama-extension-state.md` and `TODO.md` at the repo root are the session handoff — update them
   at the end of every session, and **before** committing anything.
 
-## 7. Verification gate before commit (non-negotiable order)
+## 8. Verification gate before commit (non-negotiable order)
 
 1. **Live harness** (`/workspace/tmp-artifacts/harness-proj`; build/run: `./gradlew -p /workspace/tmp-artifacts/harness-proj run`): the JVM harness runs every provider against the live site —
    `getMainPage`, `search`, `load`, `loadLinks`. New providers MUST be added to
