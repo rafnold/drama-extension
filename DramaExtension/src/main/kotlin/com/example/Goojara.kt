@@ -6,10 +6,17 @@
  *   1. Listing (main page):
  *      GET https://ww1.goojara.to/watch-trends-popular  (also /watch-trends-genre,
  *      /watch-trends-year, /watch-trends-az, /watch-movies, /watch-series)
- *      -> HTML. Rows live in <div id="list1">; each card is
- *         <a href="/{id}"><div class="im">...Movie...</div></a> or
- *         <a href="/{id}"><div class="it">...Series... (Season N, Episode M)</div></a>.
- *      <h1> title is "<MovieTitle> (YYYY)" / "<SeriesTitle> (Season N, Episode M)".
+ *      -> HTML. Rows live in <div id="list1">. Cards come in three shapes
+ *         (all resolved by parseList):
+ *           A) <a href="/mID"><div class="im">...Movie…</div></a>
+ *              <a href="/eID"><div class="it">...Series…</div></a>
+ *              (trending routes: popular, genre, year, az)
+ *           B) <a href="/mID" title="Name (year)"><img data-src="…">…</a>
+ *              (watch-movies route; all movies)
+ *           C) <a href="https://www.goojara.to/eID" title="Name (S2, Ep1)">…</a>
+ *              (watch-series route; all series; full host URL in the href)
+ *         The id is the last path segment of the href; kind comes from the
+ *         div.im/it class (A) when present, else the href prefix (m=movie).
  *
  *   2. Detail page:
  *      GET https://ww1.goojara.to/{id}
@@ -124,29 +131,52 @@ class Goojara : MainAPI() {
     private fun parseList(html: String): List<SearchResponse> {
         val out = ArrayList<SearchResponse>()
         val seen = LinkedHashSet<String>()
-        val cardRe = Regex("""<a href="(/(m|e)[A-Za-z0-9]+)"><div class="(im|it)">(.*?)</div></a>""", RegexOption.DOT_MATCHES_ALL)
-        val titleInRe = Regex("<strong>(.*?)</strong>", RegexOption.DOT_MATCHES_ALL)
-        for (m in cardRe.findAll(html)) {
-            val id = m.groupValues[1].trimStart('/')
-            val kind = m.groupValues[3] // "im" = movie, "it" = series/episode
-            val inner = m.groupValues[4]
-            val strong = titleInRe.find(inner)?.groupValues?.get(1)
-            val rawTitle = (strong ?: inner).replace("<strong>", " ").replace("</strong>", " ").trim()
-            val (name, year) = titleParts(rawTitle)
-            if (name.isBlank()) continue
-            if (!seen.add(id)) continue
-            val url = mainUrl.removeSuffix("/") + "/$id"
-            if (isMovie(id)) {
-                out += newMovieSearchResponse(name, url, TvType.Movie, false) {
-                    this.year = year
-                }
-            } else {
-                out += newTvSeriesSearchResponse(name, url, TvType.TvSeries, false) {
-                    this.year = year
-                }
-            }
+
+        // Three card shapes (see KDoc). Each pattern is self-bounded so nav
+        // links (Movies / Series / Forum / Browse) never match.
+        //   A) <a href="/mID"><div class="im|it"><strong>Name</strong>…</div></a>
+        //      (trending routes: popular, genre, year, az; genre uses t-* ids)
+        //   B) <a href="https://host/mID" title="Name (year)"><img …></a>
+        //      (watch-movies / watch-series; host is ww1. or www.goojara.to)
+        val reA = Regex("""<a href="(/(m|e|t)[A-Za-z0-9]+)"><div class="(im|it)"><strong>(.*?)</strong>""", RegexOption.DOT_MATCHES_ALL)
+        val reB = Regex("""<a href="(https?://[^"/]+/?|/)([A-Za-z][A-Za-z0-9]+)"[^>]*title="([^"]*)"><img""")
+
+        for (m in reA.findAll(html)) {
+            addCard(m.groupValues[1].trimStart('/'), m.groupValues[3], m.groupValues[4], seen, out)
+        }
+        for (m in reB.findAll(html)) {
+            // group(2) = id; group(3) = title.
+            addCard(m.groupValues[2], if (m.groupValues[2].startsWith("e")) "it" else "im", m.groupValues[3], seen, out)
         }
         return out
+    }
+
+    /**
+     * Add one parsed card. [id] is the Goojara id (e.g. "mwOREA"); [kind] is
+     * "im" (movie) or "it" (series); [title] is the raw on-card title.
+     */
+    private fun addCard(
+        id: String,
+        kind: String,
+        title: String,
+        seen: LinkedHashSet<String>,
+        out: ArrayList<SearchResponse>,
+    ) {
+        if (!id.matches(Regex("[A-Za-z][A-Za-z0-9]+"))) return
+        val isSeries = kind == "it" || id.startsWith("e")
+        val rawTitle = cleanTitle(title) ?: return
+        if (rawTitle.isBlank()) return
+        if (!seen.add(id)) return
+        val url = mainUrl.removeSuffix("/") + "/$id"
+        if (isSeries) {
+            out += newTvSeriesSearchResponse(rawTitle, url, TvType.TvSeries, false) {
+                this.year = titleParts(rawTitle).second
+            }
+        } else {
+            out += newMovieSearchResponse(rawTitle, url, TvType.Movie, false) {
+                this.year = titleParts(rawTitle).second
+            }
+        }
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
