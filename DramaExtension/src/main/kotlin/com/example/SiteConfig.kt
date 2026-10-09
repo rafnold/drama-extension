@@ -129,6 +129,10 @@ object SiteConfig {
                     "kissasian" to listOf("https://wwv21.kissasian.com.lv"),
                     "kdramain" to listOf("https://k-drama.in"),
                     "primeshows" to listOf("https://primeshows.org"),
+                    "vidsrc" to listOf("https://vidsrc.to", "https://vidsrc.me"),
+                    "goojara" to listOf("https://ww1.goojara.to"),
+                    "levidia" to listOf("https://supernova.to", "https://goojara.to"),
+                    "yesmovies" to listOf("https://ww8.123moviesfree.net"),
                 ),
                 vidsyncApi = "https://vidsync.pro/api/extraction/session",
                 dramavideoPlayerJs = "https://dramavideo.se/player.js",
@@ -179,7 +183,7 @@ object SiteConfig {
                 val d = defaults()
                 val mirrors = LinkedHashMap<String, List<String>>()
                 val m = obj.optJSONObject("mirrors")
-                for (key in listOf("dramanice", "kisskh", "dramahood", "kissasian", "kdramain", "primeshows")) {
+                for (key in d.mirrors.keys) {
                     val arr = m?.optJSONArray(key)
                     val list = ArrayList<String>()
                     if (arr != null) {

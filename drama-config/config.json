@@ -5,7 +5,11 @@
         "kissasian": ["https://wwv21.kissasian.com.lv"],
         "dramanice": ["https://dramanice.boo"],
         "kdramain": ["https://k-drama.in"],
-        "kisskh": ["https://kisskh.or.at"]
+        "kisskh": ["https://kisskh.or.at"],
+        "vidsrc": ["https://vidsrc.to", "https://vidsrc.me"],
+        "goojara": ["https://ww1.goojara.to"],
+        "levidia": ["https://supernova.to", "https://goojara.to"],
+        "yesmovies": ["https://ww8.123moviesfree.net"]
     },
     "dead": {},
     "version": 1,
