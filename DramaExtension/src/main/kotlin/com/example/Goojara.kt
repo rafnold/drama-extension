@@ -121,7 +121,11 @@ class Goojara : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         return try {
             val route = ROUTES[request.data] ?: ROUTES["popular"]!!
-            val html = app.get(mainUrl.removeSuffix("/") + route, headers = headersOf(UA, referer = mainUrl)).text
+            val html = app.get(
+                mainUrl.removeSuffix("/") + route,
+                headers = headersOf(UA, referer = mainUrl),
+                interceptor = CloudflareGate.interceptor(),
+            ).text
             newHomePageResponse(request, parseList(html))
         } catch (_: Throwable) {
             newHomePageResponse(request, emptyList())
@@ -175,19 +179,23 @@ class Goojara : MainAPI() {
         if (isSeries) {
             out += newTvSeriesSearchResponse(rawTitle, url, TvType.TvSeries, false) {
                 this.year = titleParts(rawTitle).second
-                if (poster != null) posterUrl = posterFrom(poster)
+                if (poster != null) posterUrl = if (poster.startsWith("//")) "https:$poster" else poster
             }
         } else {
             out += newMovieSearchResponse(rawTitle, url, TvType.Movie, false) {
                 this.year = titleParts(rawTitle).second
-                if (poster != null) posterUrl = posterFrom(poster)
+                if (poster != null) posterUrl = if (poster.startsWith("//")) "https:$poster" else poster
             }
         }
     }
 
     override suspend fun search(query: String): List<SearchResponse>? {
         return try {
-            val html = app.get(mainUrl.removeSuffix("/") + ROUTES["az"]!!, headers = headersOf(UA, referer = mainUrl)).text
+            val html = app.get(
+                mainUrl.removeSuffix("/") + ROUTES["az"]!!,
+                headers = headersOf(UA, referer = mainUrl),
+                interceptor = CloudflareGate.interceptor(),
+            ).text
             parseList(html)
         } catch (_: Throwable) {
             null
@@ -198,7 +206,11 @@ class Goojara : MainAPI() {
         val id = idRe.find(url)?.groupValues?.get(1) ?: throw Exception("Not a Goojara URL: $url")
         val movie = isMovie(id)
         return try {
-            val html = app.get(mainUrl.removeSuffix("/") + "/$id", headers = headersOf(UA, referer = mainUrl)).text
+            val html = app.get(
+                mainUrl.removeSuffix("/") + "/$id",
+                headers = headersOf(UA, referer = mainUrl),
+                interceptor = CloudflareGate.interceptor(),
+            ).text
             val tm = titleRe.find(html)?.groupValues?.get(1)
             if (tm.isNullOrBlank()) throw Exception("No title in $url")
             val (name, year) = titleParts(tm)
@@ -286,7 +298,11 @@ class Goojara : MainAPI() {
             if (seasonUrl == null) continue
             val sid = Regex("(m|e)[A-Za-z0-9]+").find(seasonUrl)?.groupValues?.get(1) ?: continue
             try {
-                val sHtml = app.get(mainUrl.removeSuffix("/") + "/$sid", headers = headersOf(UA, referer = mainUrl)).text
+                val sHtml = app.get(
+                    mainUrl.removeSuffix("/") + "/$sid",
+                    headers = headersOf(UA, referer = mainUrl),
+                    interceptor = CloudflareGate.interceptor(),
+                ).text
                 val epAnchors = Regex("""<a href="/(m|e)[A-Za-z0-9]+"[^>]*>(?:<div class="it">|<div class="im">)?([^<]{0,80})</a>""").findAll(sHtml)
                 for (ea in epAnchors) {
                     val eid = ea.groupValues[1]
@@ -320,7 +336,11 @@ class Goojara : MainAPI() {
     ): Boolean {
         return try {
             val id = idRe.find(data)?.groupValues?.get(1) ?: throw Exception("Not a Goojara URL: $data")
-            val html = app.get(mainUrl.removeSuffix("/") + "/$id", headers = headersOf(UA, referer = mainUrl)).text
+            val html = app.get(
+                mainUrl.removeSuffix("/") + "/$id",
+                headers = headersOf(UA, referer = mainUrl),
+                interceptor = CloudflareGate.interceptor(),
+            ).text
 
             val links = Regex("""<a class="bcg" href="(https?://[^"']+)">([^<]*)<span[^>]*>([^<]+)</span></a>""", RegexOption.DOT_MATCHES_ALL)
             var added = false

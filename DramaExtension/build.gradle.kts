@@ -6,7 +6,7 @@
 // on anything else, so the build.gradle.kts version MUST be a bare integer.
 // Bump only on meaningful changes — not reflexively. The next release after
 // v36 is 37.
-version = 37
+version = 38
 
 dependencies {
     // jsoup 1.18.3 is compiled against jspecify annotations (provided scope),
