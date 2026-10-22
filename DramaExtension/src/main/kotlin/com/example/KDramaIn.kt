@@ -239,50 +239,51 @@ class KDramaIn : MainAPI() {
     }
 
     /**
-     * Collects episodes grouped by season. The detail page's episode list
-     * is per-season (verified: ?season=1 -> eps 1-7, ?season=2 -> eps 1-13),
-     * so each season in the nav is fetched and its /watch/ links parsed.
-     * Falls back to a single episode when no season nav exists (movies).
+     * Collects the episodes for one title. The live site lists every episode
+     * **inline** on the detail page (verified: "Hidden Love" -> 25 eps,
+     * "Back to Seventeen" -> 25 eps; there is no ?season= nav anymore), so we
+     * gather all /watch/ links straight from the page. Older layouts that still
+     * paginate per season are handled by the fallback below.
      */
     private fun collectEpisodes(
         slug: String,
         id: String,
         doc: Document,
     ): List<Episode> {
-        // NOTE: findAll().map{...}.distinct().sorted() yields a Sequence<Int>,
-        // which has no isNotEmpty() - force a List with toList().
-        val seasons: List<Int> = seasonNavRe.findAll(doc.outerHtml())
-            .map { it.groupValues[1].toIntOrNull() }
-            .filterNotNull()
-            .distinct()
-            .toList()
-            .sorted()
-
         val out = ArrayList<Episode>()
-        if (seasons.isNotEmpty()) {
+        val seen = LinkedHashSet<Int>()
+        for (m in watchRe.findAll(doc.outerHtml())) {
+            val e = m.groupValues[1].toIntOrNull() ?: continue
+            if (!seen.add(e)) continue
+            // m.groupValues[0] is the full path, e.g. /watch/tv/slug-id-episode-N.
+            out += newEpisode("$mainUrl${m.groupValues[0]}") {
+                name = "Episode $e"
+                season = 0
+                episode = e
+            }
+        }
+
+        // Fallback for older layouts that paginate per season.
+        if (out.isEmpty()) {
+            val seasons: List<Int> = seasonNavRe.findAll(doc.outerHtml())
+                .map { it.groupValues[1].toIntOrNull() }
+                .filterNotNull()
+                .distinct()
+                .sorted()
+                .toList()
             for (s in seasons) {
-                val seasonUrl = "$mainUrl/detail/$slug-$id?season=$s"
-                val seasonDoc = Jsoup.parse(solver.fetchCleared(seasonUrl)?.html.orEmpty())
-                val seen = LinkedHashSet<Int>()
+                val seasonDoc = Jsoup.parse(
+                    solver.fetchCleared("$mainUrl/detail/$slug-$id?season=$s")?.html.orEmpty(),
+                )
+                val sseen = LinkedHashSet<Int>()
                 for (m in watchRe.findAll(seasonDoc.outerHtml())) {
                     val e = m.groupValues[1].toIntOrNull() ?: continue
-                    if (!seen.add(e)) continue
-                    out += newEpisode("$mainUrl/watch/$slug-$id-episode-$e") {
+                    if (!sseen.add(e)) continue
+                    out += newEpisode("$mainUrl${m.groupValues[0]}") {
                         name = "Episode $e"
                         season = s
                         episode = e
                     }
-                }
-            }
-        } else {
-            // Movie (or a drama page with no season nav): one watch link.
-            val wm = watchRe.find(doc.outerHtml())
-            if (wm != null) {
-                val e = wm.groupValues[1].toIntOrNull() ?: 1
-                out += newEpisode("$mainUrl/watch/$slug-$id-episode-$e") {
-                    name = "Episode $e"
-                    season = 0
-                    episode = e
                 }
             }
         }
@@ -303,24 +304,96 @@ class KDramaIn : MainAPI() {
         // data is the /watch/<slug>-<id>-episode=<n> URL.
         val watchUrl = if (data.startsWith("http")) data else "$mainUrl$data"
         val cleared = solver.fetchCleared(watchUrl) ?: return false
-        val src = iframeRe.find(cleared.html)?.groupValues?.get(1) ?: return false
+        val html = cleared.html
 
-        // Parse type/id/season/episode out of the site's embed URL, e.g.
-        // https://vidsync.pro/embed/tv/1396/1/5?...
-        val idm = embedIdRe.find(src) ?: return false
-        val isMovie = src.contains("/embed/movie/")
-        val embedUrl = if (isMovie) {
-            "${SiteConfig.vidsyncBase()}/embed/movie/${idm.groupValues[1]}/"
-        } else {
-            val path = embedPathRe.find(src)
-            val s = path?.groupValues[2]?.toIntOrNull() ?: 1
-            val e = path?.groupValues[3]?.toIntOrNull() ?: 1
-            "${SiteConfig.vidsyncBase()}/embed/tv/${idm.groupValues[1]}/?season=$s&episode=$e"
+        // The watch page lists every server as a switchServer(key, url) onclick
+        // (verified: 7 servers - reelsdownload, vidsync, vid2.php, yoy5.php,
+        // zxcstream.cc, vidzee, player.php). Parse them all and resolve each in
+        // parallel; CloudStream shows whichever one actually yields a stream.
+        val servers = serverRe.findAll(html)
+            .mapNotNull { m -> m.groupValues.getOrNull(2)?.takeIf { it.startsWith("http") } }
+            // Server 7 (player.php / "Hindi"): upstream HAPI 403s even with a
+            // solved challenge, so it carries no content - skip the dead request.
+            .filterNot { it.contains(SKIP_SERVER_PATH) }
+            .toList()
+
+        if (servers.isEmpty()) {
+            // Fallback: a layout that still renders a single <iframe>.
+            val src = iframeRe.find(html)?.groupValues?.get(1) ?: return false
+            return emitResult(resolveEmbed(src, watchUrl), name, UA, subtitleCallback, callback)
         }
 
-        val res = VidsyncResolver.resolve(ResolveContext(name, watchUrl), embedUrl, "Vidsync")
-        return emitResult(res, name, UA, subtitleCallback, callback)
+        val tasks = servers.map {
+            EmbedTask(
+                url = it,
+                label = it,
+                customResolver = resolverFor(it),
+            )
+        }
+        val results = Resolvers.resolveAll(
+            ResolveContext(name, watchUrl),
+            ResolveContext.TOTAL_BUDGET_MS,
+            tasks,
+        )
+
+        var any = false
+        for ((_, res) in results) {
+            if (res.sources.isEmpty()) continue
+            any = emitResult(res, name, UA, subtitleCallback, callback) || any
+        }
+        return any
     }
+
+    /** Resolve one embed URL with the host-matched resolver (no custom walk). */
+    private fun resolveEmbed(embedUrl: String, pageUrl: String): ResolveResult = try {
+        Resolvers.resolve(ResolveContext(name, pageUrl), embedUrl, null)
+    } catch (_: Throwable) {
+        ResolveResult.EMPTY
+    }
+
+    /**
+     * Best resolver for one server URL, or null when the shared registry already
+     * handles the host (e.g. vidsync.pro -> VidsyncResolver). The first-party
+     * k-drama.in proxies and zxcstream need their own referer-aware walk.
+     */
+    private fun resolverFor(url: String): ((String) -> ResolveResult)? {
+        fun devcorp(): (String) -> ResolveResult = { u -> DevcorpResolver().resolve(u) }
+        fun yoy(): (String) -> ResolveResult = { u -> Yoy4Resolver().resolve(u) }
+        fun vidsync(): (String) -> ResolveResult = { u ->
+            // VidsyncResolver reads season/episode only from the session URL's
+            // ?season=&episode= params. The embed URL carries them in the path
+            // (embed/tv/<id>/<s>/<e>), so rebuild a session URL with the correct
+            // values before delegating - otherwise every episode resolves as 1.
+            if (u.contains("/embed/movie/")) {
+                val id = Regex("embed/movie/(\\d+)").find(u)?.groupValues?.get(1)
+                if (id != null) VidsyncResolver.resolve(
+                    ResolveContext(name, u),
+                    "${SiteConfig.vidsyncBase()}/embed/movie/$id/",
+                    "Vidsync")
+            } else {
+                val m = Regex("embed/(?:tv|movie)/(\\d+)/(\\d+)/(\\d+)").find(u)
+                if (m != null) VidsyncResolver.resolve(
+                    ResolveContext(name, u),
+                    "${SiteConfig.vidsyncBase()}/embed/tv/${m.groupValues[1]}/?season=${m.groupValues[2]}&episode=${m.groupValues[3]}",
+                    "Vidsync")
+            }
+            ResolveResult.EMPTY
+        }
+        return when {
+            // In-page proxy taking the /<name>.php/<id>/<s>/<e> path (vid2.php).
+            Regex("(?i)k-drama\\.in/[a-z0-9]+\\.php/\\d+/\\d+/\\d+").containsMatchIn(url) ->
+                devcorp()
+            // YOY proxy: k-drama.in/yoyN.php
+            url.contains("/yoy") ->
+                yoy()
+            // vidsync.pro: rebuild the session URL so season/episode are correct
+            // (the raw embed URL only has them in the path, not as query params).
+            url.contains("vidsync") ->
+                vidsync()
+            else -> null
+        }
+    }
+
 
     companion object {
         private const val UA =
@@ -338,10 +411,16 @@ class KDramaIn : MainAPI() {
         private val cardRatingRe = Regex("hover-star\"></i>\\s*<span>(.*?)</span>")
         private val detailIdRe = Regex("-(\\d+)$")
         private val seasonNavRe = Regex("/detail/[^/]+\\?season=(\\d+)")
-        private val watchRe = Regex("/watch/[^/]+-episode-(\\d+)")
+        // Matches every episode link on the detail page. The live TV path has a
+        // `tv/` segment (`/watch/tv/<slug>-<id>-episode-N`), so the path segment
+        // must allow `/` - the old `[^/]+` never matched and returned 1 episode.
+        private val watchRe = Regex("/watch/[^\"#]+-episode-(\\d+)")
+        // Every watch-page server is exposed as switchServer(key, url) on its
+        // button; group 2 is the server embed URL.
+        private val serverRe = Regex("switchServer\\(['\"]([^'\"]+)['\"],\\s*['\"]([^'\"]+)['\"]")
         private val iframeRe = Regex("id=\"video-player-frame\"[^>]+src=\"([^\"]+)\"")
-        private val embedIdRe = Regex("embed/(?:tv|movie)/(\\d+)")
-        private val embedPathRe = Regex("embed/(?:tv|movie)/\\d+/(\\d+)/(\\d+)")
+        /** Server 7 (player.php) upstream HAPI 403s even with a solved challenge. */
+        private const val SKIP_SERVER_PATH = "/player.php"
 
         /**
          * Slug for a title, matching the site's detail-URL slugs exactly.
