@@ -9,19 +9,26 @@ before commit).
 Status columns as work lands; keep this file as the current-session handoff
 only. Release history details live in `drama-extension-state.md` (gitignored).
 
-## Current status: **v30 instrumented, NOT yet working on device** (2026-10-04)
+## Current status: **v38 rewritten for the site redesign, NOT yet built/tested on device** (2026-10-21)
 
 6 providers: DramaNice, KDrama.in, KissAsian, Dramahood, KissKH, Primeshows.
-HEAD is `b7fc33f` (**v29**), which IS pushed — `builds/plugins.json` version 29
+HEAD is `7b89dc1` (**v29**), which IS pushed — `builds/plugins.json` version 29
 verified live, and the shipped `.cs3` was independently confirmed to contain the
 v29 code. Everything after that commit is **uncommitted working-tree changes**
-(the "v30" batch below).
+(the "v30" batch below, plus the v38 rewrite of `KDramaIn.kt`).
 
-**KDrama.in playback does not work on the device yet** ("No Links Found"). The
-diagnosis is not finished; v30 ships diagnostic `println`s so the next run
-reads the exact failing stage from logcat instead of guessing. Read
-`## v30 — KDrama.in playback bring-up` before touching this code again: it
-records four wrong theories I tested and disproved, so they are not re-tried.
+**KDrama.in was rewritten from scratch for a site redesign; it needs a build +
+device test before it can be judged.** The old v13–v30 code scraped the now-
+deleted `dramas.php` / `detail.php` / `watch.php` routes. The site relaunched in
+2026-10-20 as **"KatDrama"** (Cineapse theme v2.9) and every path now renders at
+`/explore?...` with entirely different markup — so the old selectors matched
+nothing (0 `detail.php` links, 0 `watch.php` links). `KDramaIn.kt` was rewritten
+to the new structure; every selector below is verified live against the site
+through FlareSolverr. The playback path (`vidsync.pro` → `VidsyncResolver`) is
+unchanged and was re-verified to return real sources. **Build + device test is
+the remaining gate** (this box has no JDK; it must run on the owner's machine).
+Read `## v38 — KDrama.in redesigned (KatDrama/Cineapse) full rewrite` before
+touching this code again.
 
 Recent releases:
 - **v28** (2026-10-04, commit `ad2105e`): ZXC (server 5) discovery — reproduces
@@ -32,6 +39,21 @@ Recent releases:
   DevcorpResolver was bypassing it.
 - **v25** (2026-10-04, `b0dbaf8`): DevcorpResolver (server 3 / moviebox).
 - **v24** (2026-10-04, `82b623b`): multi-server fan-out in `loadLinks`.
+- **v38** (2026-10-21, **uncommitted**): full rewrite of **KDrama.in** for the
+  2026-10-20 site redesign ("KatDrama", Cineapse v2.9). The old `dramas.php` /
+  `detail.php` / `watch.php` routes are gone; everything now lives at
+  `/explore?...`. New verified facts (all via FlareSolverr `cmd=request.get`):
+  catalog cards are `div.cineapse-movie-card` with `onclick="location.href='/detail/<slug>-<id>'"`
+  (title `.cineapse-hover-title`, rating is the `<span>` *after* the star — the
+  star's parent text is the year, a latent bug in the old code), detail is
+  `/detail/<slug>-<id>` (id = trailing `-<digits>`; `&` is stripped from the
+  slug), episodes are `/watch/<slug>-<id>-episode=<n>` listed **per season**
+  (detail `?season=N` nav; season 1→eps1-7, season 2→eps1-13), and search is
+  `/api.php?action=search&q=` (returns TMDB JSON in an HTML `<pre>`; the `q`
+  param on `/explore` is ignored). Watch page embeds `vidsync.pro/embed/{tv|movie}/<id>/<s>/<e>`
+  in `#video-player-frame`; sources come from the vidsync session API via the
+  unchanged `VidsyncResolver`. `usesWebView` stays declared (CF challenge).
+  Selector logic verified live against captured HTML; **build + device test pending**.
 - **v14** (2026-10-03, commit `e005d3f`): new **Primeshows** provider (`primeshows.org`). Catalog/detail/episodes via the TMDB proxy (`/api/proxy/tmdb`), watch route `/watch/{movie|tv}/{tmdbId}`, sources via `api.wecollege.net` seed→`/miami/sources` + the ported `VidyDecrypt` (base64url ct → XOR PRNG keystream → `"mvm1"` magic → JSON `sources[]` → m3u8 with `referer=https://www.vidy.st/`). Fixes that unblocked it in the harness: (1) `VidyDecrypt.base64Decode` padding `(-len)%4` → `(4-len%4)%4` (Kotlin `%` keeps the sign, so a ct length %4∈{2,3} decoded empty → flaky magic mismatch, since ct length is non-deterministic); (2) harness `SiteConfig.kt` was missing the primeshows mirror → relative proxy URL; (3) standalone decrypt test used the wrong seed host and parsed the ct as JSON. Harness gate GREEN for Primeshows (catalog 20 cards, movie+TV load, TV loadLinks=3 links, decrypt PASS, live capture `Digger` e2eLinks=3). Remaining failure is **KDrama.in only** — pre-existing, blocked by a Cloudflare "Just a moment..." bot challenge (HTTP 403) on the harness HTTP client, unrelated to Primeshows and failing identically before these changes.
 - **v13** (2026-10-02, commit `05add09`): env-var overrides for the
   remote-config secrets. The 6 resolver/secret accessors in `SiteConfig.kt`
@@ -540,6 +562,73 @@ the site's server numbering — do not confuse the two.
   andromeda `url`/`header` pair is neither the `link` nor the `token`). Its
   **subtitles** do work and are emitted in v29.
 - `v29` is pushed and live; this v30 batch is **not committed**.
+
+## v38 — KDrama.in redesigned (KatDrama/Cineapse) full rewrite (2026-10-21, UNCOMMITTED)
+
+**Why:** the site relaunched 2026-10-20 as "KatDrama" (Cineapse theme v2.9).
+The old v13–v30 `KDramaIn.kt` scraped `dramas.php` (catalog), `detail.php?id=X`
+(detail), and `watch.php?id=..&season=..&episode=..` (episodes) — **none exist
+anymore**. Live probe: 0 `detail.php` links, 0 `watch.php` links, 35
+`/explore?...` links on the catalog page. The old code therefore matched nothing
+and returned empty tabs. This rewrite targets the new markup; every selector is
+verified live against the site through FlareSolverr (`cmd=request.get`,
+`Challenge not detected!`, HTTP 200).
+
+**Verified live facts (all via FlareSolverr; captured HTML in `/tmp`):**
+
+- **Catalog** — `GET /explore?type=<kdrama|cdrama|jdrama|movies|top_rated>&sort=popular&page=<n>`.
+  Cards: `<div class="cineapse-movie-card" onclick="window.location.href='/detail/<slug>-<id>'">`.
+  - title: `.cineapse-hover-title` (e.g. "Breaking Bad").
+  - poster: first `img` (`image.tmdb.org/t/p/w500/...`).
+  - **rating: the `<span>` *after* `<i class="fas fa-star hover-star">`** (e.g. `9.0`).
+    The `<span>` *before* the star is the **year**; the star's parent text is the
+    year too. The old code did `a.selectFirst("i.fa-star")?.parent()?.text()` → the
+    year, not the rating (latent bug; now fixed).
+  - Standalone `/ranking` uses plain `<a href="/detail/<slug>-<id>">` (no onclick
+    cards); `/watchlist` and `/calendar` return 0 cards (login / different layout) —
+    dropped from `mainPage`.
+- **Detail** — `GET /detail/<slug>-<id>`. id = the trailing `-<digits>` of the
+  href; slug = everything before it. Verified sluggen: "Breaking Bad"→
+  `breaking-bad`, "Law & Order"→`law-order` (`&` stripped, not `law-amp-order`
+  or `law-and-order"), "Come Home Love: Lo and Behold"→`come-home-love-lo-and-behold`.
+  - title: `h1`; year: `\((\d{4})\)` from `<title>`/`og:title`; poster:
+    `meta[property=og:image]`; overview: `meta[name=description]`.
+  - seasons: `<a href="/detail/<slug>-<id>?season=<n>">` nav (Breaking Bad: 1–5).
+- **Episodes** — listed **per season**: season 1 → eps 1–7, season 2 → eps 1–13.
+  Each season page lists `/watch/<slug>-<id>-episode=<n>` links (text "Watch
+  Episode N"). So `load` fetches the detail page, reads the season nav, then
+  fetches each `?season=N` page and parses its `/watch/` links, grouped by season.
+- **Watch / sources** — `GET /watch/<slug>-<id>-episode=<n>` embeds
+  `<iframe id="video-player-frame" src="https://vidsync.pro/embed/{tv|movie}/<id>/<season>/<episode>?...">`.
+  season/episode are **baked into that URL by the site**, so the right episode
+  always resolves (ep 5 → `/embed/tv/1396/1/5`). `loadLinks` extracts that src,
+  rebuilds the vidsync embed URL with explicit `season=`/`episode=` params, and
+  hands it to the **unchanged `VidsyncResolver`** (live session API + 12 h cache
+  fallback + subtitles). Re-verified: the vidsync session API returns real
+  `sources[]` (10 servers, m3u8) from a plain client with no special headers.
+- **Search** — `GET /api.php?action=search&q=<query>` → HTML wrapping JSON in a
+  `<pre>`: `{"results":[{"id":1396,"name":"Breaking Bad","poster_path":"/...",
+  "media_type":"tv",...}]}`. Build each result's detail URL as
+  `/detail/<slug(name)>-<id>` (slug = lowercased, runs of non-alphanumerics→`-`).
+  **The `q` param on `/explore` is ignored and returns the catalog** — do NOT use
+  it for search (the old code's `dramas.php?type=all&q=` had the same problem).
+
+**Shared change:** `VidsyncResolver.parseIds` already treats `/embed/movie/` as a
+movie (my movie embed URL is `$vb/embed/movie/<id>/`, which contains that token).
+No other file changed.
+
+**What is NOT changed / still relies on prior work:** FlareSolverr solver
+(`usesWebView=true`, every fetch via `FlareSolverr.fetchCleared`), `SiteConfig`
+mirrors/secrets, the `Vidsync` curation parser, `emitResult` link/subtitle
+emission.
+
+**Remaining gate (cannot run here — no JDK):** build the extension and test on
+device. `getMainPage`/`search`/`load`/`loadLinks` were verified at the selector
+level against captured HTML, but the CloudStream API glue (`newMovieSearchResponse`,
+`newTvSeriesLoadResponse`, `newEpisode`, `Score.from10`, `newHomePageResponse`,
+`emitResult`) has not been compiled. Next: `./gradlew assembleRelease` (or the
+CloudStream build) → install → open the KDrama.in tab → browse a tab → open a
+show → open an episode → confirm links. Record the outcome here.
 
 ## Next steps
 
